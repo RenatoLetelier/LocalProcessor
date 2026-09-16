@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { bridge } from '@/lib/bridge'
 import type { AppConfig, Standard } from '@shared/config'
+import type { SystemInfo } from '@shared/api'
 import { SEGMENT_DURATION_RANGE, validateConfig } from '@shared/config-validate'
-import { ApiError } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { useAppState } from '@/state/AppState'
 
 const STANDARDS: { id: Standard; label: string; hint: string }[] = [
@@ -16,9 +17,15 @@ export function Settings() {
   const [saving, setSaving] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [system, setSystem] = useState<SystemInfo | null>(null)
 
   useEffect(() => {
     if (config) setDraft(structuredClone(config))
+  }, [config])
+
+  // Concurrency depends on the saved config, so it is refreshed after every save
+  useEffect(() => {
+    api.system().then(setSystem).catch(() => setSystem(null))
   }, [config])
 
   const problems = useMemo(() => (draft ? validateConfig(draft) : []), [draft])
@@ -142,6 +149,49 @@ export function Settings() {
           </tbody>
         </table>
         <p className="muted">Las calidades personalizadas (por ejemplo 1440p) se agregan por la API: <code>PUT /config</code>.</p>
+      </div>
+
+      <div className="card">
+        <h3 className="card__title">Rendimiento</h3>
+        {system && (
+          <div className="stack-sm">
+            <p className="muted">Codificadores H.264 detectados en esta máquina (probados con una codificación real al arrancar):</p>
+            <ul className="encoder-list">
+              {system.encoders.map((e) => (
+                <li key={e.kind} className={`encoder-list__item${e.available ? '' : ' encoder-list__item--off'}`}>
+                  <span className={`encoder-list__dot${e.available ? ' encoder-list__dot--ok' : ''}`} aria-hidden="true" />
+                  <span>{e.label}</span>
+                  {system.selectedEncoder === e.kind && <span className="chip">en uso</span>}
+                  {!e.available && e.error && <span className="muted"> — {e.error}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <label className="field">
+          <span>Codificador</span>
+          <select className="input input--sm" value={draft.encoder} onChange={(e) => update({ encoder: e.target.value as AppConfig['encoder'] })}>
+            <option value="auto">Automático (hardware si existe)</option>
+            <option value="software">Solo CPU (libx264, máxima calidad)</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Jobs en paralelo</span>
+          <select
+            className="input input--sm"
+            value={draft.maxConcurrentJobs === 'auto' ? 'auto' : String(draft.maxConcurrentJobs)}
+            onChange={(e) => update({ maxConcurrentJobs: e.target.value === 'auto' ? 'auto' : Number(e.target.value) })}
+          >
+            <option value="auto">Automático{system ? ` (ahora: ${system.concurrency})` : ''}</option>
+            {[1, 2, 3, 4, 6, 8].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <p className="muted">
+          En automático, cada calidad activa es una sesión del codificador: con NVENC se reparten las 8 sesiones que permite el driver, con otros
+          codificadores por hardware corren 2 jobs, y con CPU uno solo (x264 ya usa todos los núcleos).
+        </p>
       </div>
 
       <div className="card">

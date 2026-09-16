@@ -32,6 +32,12 @@ export function validateConfig(config: AppConfig): string[] {
     }
   }
 
+  if (config.encoder !== 'auto' && config.encoder !== 'software') problems.push('encoder: debe ser "auto" o "software"')
+  const jobs = config.maxConcurrentJobs
+  if (jobs !== 'auto' && (!Number.isInteger(jobs) || jobs < 1 || jobs > 16)) {
+    problems.push('maxConcurrentJobs: debe ser "auto" o un entero entre 1 y 16')
+  }
+
   const seconds = config.segmentDurationSeconds
   if (!Number.isInteger(seconds) || seconds < SEGMENT_DURATION_RANGE.min || seconds > SEGMENT_DURATION_RANGE.max) {
     problems.push(

@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { SOFTWARE_ENCODER, encoderFilterSuffix, encoderGlobalArgs, videoCodecArgs, type EncoderKind } from './encoders'
 import { run } from './exec'
 import { encodedAudioFile, encodedSubtitleFile, encodedVideoFile } from './layout'
 import type {
@@ -13,7 +14,7 @@ import type {
   VideoEncoderOptions
 } from './types'
 
-export const DEFAULT_VIDEO_ENCODER: Required<VideoEncoderOptions> = { preset: 'medium', crf: 20 }
+export const DEFAULT_VIDEO_ENCODER: Required<VideoEncoderOptions> = { kind: SOFTWARE_ENCODER, preset: 'medium', crf: 20 }
 
 export interface EncodeOutputs {
   video: { label: string; file: string }[]
@@ -33,14 +34,14 @@ export function buildFfmpegArgs(
   const inputs = new InputList(source.path)
   for (const audio of plan.audio) inputs.add(audio.input.path)
 
-  const args = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:1']
+  const args = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:1', ...encoderGlobalArgs(opts.kind)]
   for (const path of inputs.paths) args.push('-i', path)
   const outputs: EncodeOutputs = { video: [], audio: [] }
 
   const videoInput = `0:${source.video.index}`
   const labels = plan.renditions.map((r) => `[v_${r.label}]`)
   if (plan.renditions.length > 1) {
-    const chain = plan.renditions.map((r) => `[s_${r.label}]${scaleFilter(r)}[v_${r.label}]`)
+    const chain = plan.renditions.map((r) => `[s_${r.label}]${scaleFilter(r, opts.kind)}[v_${r.label}]`)
     args.push(
       '-filter_complex',
       `[${videoInput}]split=${plan.renditions.length}${labels.map((l) => l.replace('v_', 's_')).join('')};${chain.join(';')}`
@@ -50,8 +51,8 @@ export function buildFfmpegArgs(
   plan.renditions.forEach((rendition, i) => {
     const file = join(encDir, encodedVideoFile(rendition.label))
     if (plan.renditions.length > 1) args.push('-map', labels[i]!)
-    else args.push('-map', videoInput, '-vf', scaleFilter(rendition))
-    args.push(...videoCodecArgs(rendition, plan, opts), '-an', '-sn', '-dn', '-map_metadata', '-1', '-f', 'mp4', file)
+    else args.push('-map', videoInput, '-vf', scaleFilter(rendition, opts.kind))
+    args.push(...videoCodecArgs(opts.kind, rendition, plan, opts), '-an', '-sn', '-dn', '-map_metadata', '-1', '-f', 'mp4', file)
     outputs.video.push({ label: rendition.label, file })
   })
 
@@ -83,28 +84,8 @@ class InputList {
 }
 
 // setsar=1 turns anamorphic sources into square pixels at the display size
-function scaleFilter(rendition: RenditionPlan): string {
-  return `scale=${rendition.width}:${rendition.height}:flags=bicubic,setsar=1`
-}
-
-function videoCodecArgs(rendition: RenditionPlan, plan: EncodePlan, opts: Required<VideoEncoderOptions>): string[] {
-  const { gopFrames, maxBitrateKbps } = rendition
-  return [
-    '-c:v', 'libx264',
-    '-preset', opts.preset,
-    '-profile:v', 'high',
-    '-pix_fmt', 'yuv420p',
-    // Capped CRF: constant quality, never above the rung ceiling
-    '-crf', String(opts.crf),
-    '-maxrate', `${maxBitrateKbps}k`,
-    '-bufsize', `${maxBitrateKbps * 2}k`,
-    // Fixed GOP with no scene-cut keyframes so every rendition cuts on the same frames
-    '-g', String(gopFrames),
-    '-keyint_min', String(gopFrames),
-    '-sc_threshold', '0',
-    '-r', `${plan.fps.num}/${plan.fps.den}`,
-    '-fps_mode', 'cfr'
-  ]
+function scaleFilter(rendition: RenditionPlan, kind: EncoderKind): string {
+  return `scale=${rendition.width}:${rendition.height}:flags=bicubic,setsar=1${encoderFilterSuffix(kind)}`
 }
 
 function audioCodecArgs(audio: AudioPlan): string[] {

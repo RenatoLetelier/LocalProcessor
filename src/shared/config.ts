@@ -1,4 +1,6 @@
 export type Standard = 'hls' | 'dash'
+export type EncoderPreference = 'auto' | 'software'
+export type ConcurrencyPreference = 'auto' | number
 
 export interface Rung {
   // Maximum box: renditions are the source scaled to fit inside it, never upscaled
@@ -14,6 +16,10 @@ export interface AppConfig {
   qualities: string[]
   rungs: Record<string, Rung>
   segmentDurationSeconds: number
+  // auto = best hardware encoder that works on this machine, software = always libx264
+  encoder: EncoderPreference
+  // auto = derived from the detected hardware and the number of enabled qualities
+  maxConcurrentJobs: ConcurrencyPreference
 }
 
 export const DEFAULT_RUNGS: Record<string, Rung> = {
@@ -29,7 +35,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   standards: ['hls', 'dash'],
   qualities: ['2160p', '1080p', '720p', '480p'],
   rungs: DEFAULT_RUNGS,
-  segmentDurationSeconds: 6
+  segmentDurationSeconds: 6,
+  encoder: 'auto',
+  maxConcurrentJobs: 'auto'
 }
 
 export const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]

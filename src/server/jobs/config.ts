@@ -9,6 +9,7 @@ export interface JobConfig {
   qualities: string[]
   rungs: Record<string, Rung>
   segmentDurationSeconds: number
+  encoder: AppConfig['encoder']
 }
 
 export interface ConfigOverrides {
@@ -33,7 +34,8 @@ export function snapshotJobConfig(global: AppConfig, overrides: ConfigOverrides 
     standards: merged.standards,
     qualities: merged.qualities,
     rungs: structuredClone(merged.rungs),
-    segmentDurationSeconds: merged.segmentDurationSeconds
+    segmentDurationSeconds: merged.segmentDurationSeconds,
+    encoder: merged.encoder
   }
 }
 

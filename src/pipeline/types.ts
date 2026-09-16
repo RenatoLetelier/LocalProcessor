@@ -1,4 +1,5 @@
 import type { Rung, Standard } from '@shared/config'
+import type { EncoderKind } from './encoders'
 
 export interface Binaries {
   ffmpeg: string
@@ -166,7 +167,9 @@ export interface PipelineInput {
 }
 
 export interface VideoEncoderOptions {
-  // libx264 preset; hardware encoders arrive in a later phase
+  // Which H.264 encoder drives the run (default: software libx264)
+  kind?: EncoderKind
+  // libx264 preset and CRF; hardware encoders derive their own quality knobs from crf
   preset?: string
   crf?: number
 }

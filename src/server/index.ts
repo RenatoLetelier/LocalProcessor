@@ -8,6 +8,7 @@ import { healthRoutes } from './routes/health'
 import { configRoutes } from './routes/config'
 import { titlesRoutes } from './routes/titles'
 import { jobsRoutes } from './routes/jobs'
+import { systemRoutes } from './routes/system'
 
 export type { ServerContext } from './context'
 
@@ -63,6 +64,7 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   await app.register(configRoutes, { repos: opts.context.repos, events: opts.context.events })
   await app.register(titlesRoutes, { context: opts.context })
   await app.register(jobsRoutes, { context: opts.context, allowedOrigins: opts.allowedOrigins })
+  await app.register(systemRoutes, { context: opts.context })
 
   return app
 }

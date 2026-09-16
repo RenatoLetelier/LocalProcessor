@@ -8,6 +8,7 @@ import { DB_FILE_NAME, openDatabase, type AppDatabase } from '@server/db'
 import { ServerEvents } from '@server/jobs/events'
 import { JobRunner } from '@server/jobs/runner'
 import { resolveBinaries } from '@pipeline/binaries'
+import { detectHardware } from '@pipeline/hardware'
 import { createMainWindow, rendererOrigin } from './window'
 import { registerIpcHandlers } from './ipc'
 import { buildRendererCsp, registerRendererScheme, serveRenderer } from './renderer-protocol'
@@ -58,6 +59,9 @@ async function main(): Promise<void> {
   const resourcesDir = is.dev ? join(app.getAppPath(), 'resources') : process.resourcesPath
   const binaries = resolveBinaries({ resourcesDir })
 
+  // A one-second test encode per candidate: what ffmpeg lists is not what the drivers can do
+  const hardware = await detectHardware(binaries)
+
   const events = new ServerEvents()
   // The runner logs through the Fastify logger, which exists only after startServer
   runner = new JobRunner({
@@ -65,6 +69,7 @@ async function main(): Promise<void> {
     repos: database.repos,
     events,
     binaries,
+    hardware,
     log: {
       info: (msg) => server?.log.info(msg),
       warn: (msg) => server?.log.warn(msg),
@@ -76,11 +81,12 @@ async function main(): Promise<void> {
     host: apiHost,
     port: apiPort,
     version: app.getVersion(),
-    context: { repos: database.repos, events, runner, binaries },
+    context: { repos: database.repos, events, runner, binaries, hardware },
     allowedOrigins: [rendererOrigin()],
     logLevel: is.dev ? 'info' : 'warn'
   })
   server.log.info({ node: process.versions.node, electron: process.versions.electron, dataDir, binaries }, 'runtime')
+  server.log.info({ encoders: hardware.encoders.map((e) => `${e.kind}:${e.available ? 'ok' : e.error}`), preferred: hardware.preferred }, 'hardware')
 
   serveRenderer(join(__dirname, '../renderer'), buildRendererCsp(apiBaseUrl))
   registerIpcHandlers(apiBaseUrl, database.repos)

@@ -1,10 +1,12 @@
 // Runs the pipeline on one file without Electron or the database:
-//   npm run process -- <input> --out <folder> [--quality 1080p,720p,480p] [--segment 6] [--standards hls,dash] [--preset medium] [--verbose]
+//   npm run process -- <input> --out <folder> [--quality 1080p,720p,480p] [--segment 6] [--standards hls,dash] [--preset medium] [--encoder auto|software|h264_nvenc…] [--verbose]
 import { randomUUID } from 'node:crypto'
 import { basename, extname, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { DEFAULT_CONFIG, type Standard } from '../src/shared/config'
 import { processTitle, resolveBinaries } from '../src/pipeline'
+import { ENCODERS, SOFTWARE_ENCODER, type EncoderKind } from '../src/pipeline/encoders'
+import { detectHardware } from '../src/pipeline/hardware'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -14,6 +16,7 @@ const { values, positionals } = parseArgs({
     segment: { type: 'string', default: String(DEFAULT_CONFIG.segmentDurationSeconds) },
     standards: { type: 'string', default: 'hls' },
     preset: { type: 'string', default: 'medium' },
+    encoder: { type: 'string', default: 'auto' },
     id: { type: 'string' },
     name: { type: 'string' },
     verbose: { type: 'boolean', default: false }
@@ -27,26 +30,41 @@ if (!input || !values.out) {
 }
 
 const sourcePath = resolve(input)
+const outputRoot = resolve(values.out)
 const titleId = values.id ?? randomUUID()
 const binaries = resolveBinaries({ resourcesDir: resolve(__dirname, '..', 'resources') })
+
+async function chooseEncoder(): Promise<EncoderKind> {
+  if (values.encoder === 'software') return SOFTWARE_ENCODER
+  if (values.encoder !== 'auto') {
+    if (!ENCODERS.some((e) => e.kind === values.encoder)) throw new Error(`Codificador desconocido: ${values.encoder}`)
+    return values.encoder as EncoderKind
+  }
+  const hardware = await detectHardware(binaries)
+  for (const e of hardware.encoders) process.stderr.write(`${e.available ? '✓' : '✗'} ${e.label}${e.error ? ` (${e.error})` : ''}\n`)
+  return hardware.preferred
+}
 
 let lastLine = ''
 const started = Date.now()
 
-processTitle(
+chooseEncoder()
+  .then((kind) => {
+    process.stderr.write(`codificador: ${kind}\n`)
+    return processTitle(
   binaries,
   {
     titleId,
     name: values.name ?? basename(sourcePath, extname(sourcePath)),
     sourcePath,
-    outputRoot: resolve(values.out),
+    outputRoot,
     standards: values.standards.split(',').map((s) => s.trim() as Standard),
     plan: {
       rungs: DEFAULT_CONFIG.rungs,
       qualities: values.quality.split(',').map((q) => q.trim()).filter(Boolean),
       segmentDurationSeconds: Number(values.segment)
     },
-    videoEncoder: { preset: values.preset }
+    videoEncoder: { kind, preset: values.preset }
   },
   {
     onProgress: (event) => {
@@ -61,6 +79,7 @@ processTitle(
     }
   }
 )
+  })
   .then((result) => {
     process.stderr.write('\n')
     const seconds = ((Date.now() - started) / 1000).toFixed(1)

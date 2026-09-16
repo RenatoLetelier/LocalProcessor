@@ -1,4 +1,5 @@
 import type { Binaries } from '@pipeline/types'
+import type { HardwareInfo } from '@pipeline/hardware'
 import type { Repositories } from './db/repositories'
 import type { Prober } from './jobs/enqueue'
 import type { ReprocessDeps } from './jobs/reprocess'
@@ -11,6 +12,8 @@ export interface ServerContext {
   events: ServerEvents
   runner: JobRunner
   binaries: Binaries
+  // Encoders detected at startup; null when detection has not run (tests)
+  hardware?: HardwareInfo | null
   probe?: Prober
   probeTracks?: ReprocessDeps['probeTracks']
   checkDiskSpace?: boolean

@@ -29,7 +29,9 @@ const configPatchSchema = {
       propertyNames: { pattern: '^[a-z0-9]+$' },
       additionalProperties: rungSchema
     },
-    segmentDurationSeconds: { type: 'integer', minimum: SEGMENT_DURATION_RANGE.min, maximum: SEGMENT_DURATION_RANGE.max }
+    segmentDurationSeconds: { type: 'integer', minimum: SEGMENT_DURATION_RANGE.min, maximum: SEGMENT_DURATION_RANGE.max },
+    encoder: { type: 'string', enum: ['auto', 'software'] },
+    maxConcurrentJobs: { anyOf: [{ type: 'string', enum: ['auto'] }, { type: 'integer', minimum: 1, maximum: 16 }] }
   }
 } as const
 

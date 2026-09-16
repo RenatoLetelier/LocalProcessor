@@ -1,8 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Job } from '@shared/model'
 import { addToTitle, processTitle } from '@pipeline/index'
-import type { Binaries, ExternalTrack, PipelineHooks, PipelineResult, ProgressEvent } from '@pipeline/types'
+import { SOFTWARE_ENCODER, encoderSpec, isHardwareEncoder, type EncoderKind } from '@pipeline/encoders'
+import { ProcessError } from '@pipeline/exec'
+import type { HardwareInfo } from '@pipeline/hardware'
+import type { Binaries, ExternalTrack, PipelineHooks, PipelineResult, ProgressEvent, VideoEncoderOptions } from '@pipeline/types'
 import type { Repositories } from '../db/repositories'
+import { computeConcurrency, resolveEncoder } from './concurrency'
 import { parseJobConfig, type JobConfig } from './config'
 import type { ServerEvents } from './events'
 import { recordIncremental, recordResult } from './record'
@@ -32,7 +36,9 @@ export interface RunnerDeps {
   binaries: Binaries
   pipeline?: PipelineFn
   incremental?: IncrementalFn
+  // Fixed number, or derived from the detected hardware and the current config
   concurrency?: number
+  hardware?: HardwareInfo | null
   log?: RunnerLogger
 }
 
@@ -52,14 +58,12 @@ export class JobRunner {
   private readonly running = new Map<string, RunningJob>()
   private readonly pipeline: PipelineFn
   private readonly incremental: IncrementalFn
-  private readonly concurrency: number
   private readonly log: RunnerLogger
   private stopping = false
 
   constructor(private readonly deps: RunnerDeps) {
     this.pipeline = deps.pipeline ?? processTitle
     this.incremental = deps.incremental ?? addToTitle
-    this.concurrency = deps.concurrency ?? 1
     this.log = deps.log ?? { info() {}, warn() {}, error() {}, debug() {} }
   }
 
@@ -90,6 +94,12 @@ export class JobRunner {
 
   notify(): void {
     this.tick()
+  }
+
+  // Jobs allowed to run at once right now: a config change takes effect on the next tick
+  concurrency(): number {
+    if (this.deps.concurrency !== undefined) return this.deps.concurrency
+    return computeConcurrency(this.deps.repos.settings.getConfig(), this.deps.hardware ?? null)
   }
 
   hasRunning(): boolean {
@@ -133,7 +143,7 @@ export class JobRunner {
 
   private tick(): void {
     if (this.stopping) return
-    while (this.running.size < this.concurrency) {
+    while (this.running.size < this.concurrency()) {
       const next = this.deps.repos.jobs.nextQueued()
       if (!next) return
       const controller = new AbortController()
@@ -186,20 +196,24 @@ export class JobRunner {
       }
     }
     const base = { titleId: title.id, name: title.name, sourcePath: title.source_path, outputRoot: config.outputFolder }
+    const encoder = resolveEncoder(config.encoder ?? 'auto', this.deps.hardware ?? null)
 
     try {
       let result: PipelineResult
       if (job.tipo === 'inicial' || job.tipo === 'reprocesar_completo') {
-        result = await this.pipeline(
-          binaries,
-          {
-            ...base,
-            standards: config.standards,
-            plan: { rungs: config.rungs, qualities: config.qualities, segmentDurationSeconds: config.segmentDurationSeconds },
-            externalTracks: config.externalTracks,
-            replaceExisting: job.tipo === 'reprocesar_completo'
-          },
-          hooks
+        result = await this.withSoftwareFallback(job, encoder, hooks, (videoEncoder) =>
+          this.pipeline(
+            binaries,
+            {
+              ...base,
+              standards: config.standards,
+              plan: { rungs: config.rungs, qualities: config.qualities, segmentDurationSeconds: config.segmentDurationSeconds },
+              externalTracks: config.externalTracks,
+              replaceExisting: job.tipo === 'reprocesar_completo',
+              videoEncoder
+            },
+            hooks
+          )
         )
         recordResult(repos, this.deps.db, result)
         // A full reprocess is the one job allowed to adopt a replaced source file
@@ -209,17 +223,20 @@ export class JobRunner {
         if (title.source_hash && (await sourceHash(title.source_path)) !== title.source_hash) {
           throw new Error('El archivo de origen cambió desde el procesado inicial; usa el reprocesado completo')
         }
-        result = await this.incremental(
-          binaries,
-          {
-            ...base,
-            rungs: config.rungs,
-            qualities: job.tipo === 'agregar_calidad' ? config.qualities : [],
-            audioIndexes: config.audioIndexes ?? [],
-            subtitleIndexes: config.subtitleIndexes ?? [],
-            externalTracks: config.externalTracks ?? []
-          },
-          hooks
+        result = await this.withSoftwareFallback(job, encoder, hooks, (videoEncoder) =>
+          this.incremental(
+            binaries,
+            {
+              ...base,
+              rungs: config.rungs,
+              qualities: job.tipo === 'agregar_calidad' ? config.qualities : [],
+              audioIndexes: config.audioIndexes ?? [],
+              subtitleIndexes: config.subtitleIndexes ?? [],
+              externalTracks: config.externalTracks ?? [],
+              videoEncoder
+            },
+            hooks
+          )
         )
         recordIncremental(repos, this.deps.db, result)
       }
@@ -231,6 +248,27 @@ export class JobRunner {
       const message = signal.aborted ? CANCELLED_MESSAGE : error instanceof Error ? error.message : String(error)
       this.finish(job.id, signal.aborted ? 'cancelled' : 'error', message)
       this.log.error(`job ${job.id} ${signal.aborted ? 'cancelado' : 'falló'}: ${message}`)
+    }
+  }
+
+  // A hardware encoder that was detected at startup can still fail at run time
+  // (driver hiccup, session limit): the job is retried once on the CPU.
+  private async withSoftwareFallback(
+    job: Job,
+    encoder: EncoderKind,
+    hooks: PipelineHooks,
+    attempt: (videoEncoder: VideoEncoderOptions) => Promise<PipelineResult>
+  ): Promise<PipelineResult> {
+    this.log.info(`job ${job.id}: codificador ${encoderSpec(encoder).label}`)
+    try {
+      return await attempt({ kind: encoder })
+    } catch (error) {
+      const ffmpegFailed = error instanceof ProcessError && error.command === this.deps.binaries.ffmpeg && !error.aborted
+      if (!isHardwareEncoder(encoder) || !ffmpegFailed || hooks.signal?.aborted) throw error
+      const reason = error.stderrTail.at(-1) ?? error.message
+      this.log.warn(`job ${job.id}: ${encoderSpec(encoder).label} falló (${reason}); reintentando por software`)
+      hooks.onLog?.(`codificador ${encoderSpec(encoder).label} falló: ${reason}. Reintentando por software (libx264)`)
+      return attempt({ kind: SOFTWARE_ENCODER })
     }
   }
 

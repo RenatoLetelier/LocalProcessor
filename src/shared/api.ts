@@ -68,3 +68,11 @@ export interface ReprocessRequest {
   standards?: ('hls' | 'dash')[]
   segmentDurationSeconds?: number
 }
+
+export interface SystemInfo {
+  platform: string
+  cpuThreads: number
+  encoders: { kind: string; label: string; hardware: boolean; available: boolean; error?: string }[]
+  selectedEncoder: string
+  concurrency: number
+}

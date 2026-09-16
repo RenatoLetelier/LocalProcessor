@@ -1,6 +1,6 @@
 import type { AppConfig } from '@shared/config'
 import { bridge } from '@/lib/bridge'
-import type { CreateTitleResponse, HealthResponse, ReprocessRequest, TitleDetail, TitleFilesResponse } from '@shared/api'
+import type { CreateTitleResponse, HealthResponse, ReprocessRequest, SystemInfo, TitleDetail, TitleFilesResponse } from '@shared/api'
 import type { Job, JobStatus, Title } from '@shared/model'
 
 let baseUrlPromise: Promise<string> | undefined
@@ -36,6 +36,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>('/health'),
+  system: () => request<SystemInfo>('/system'),
   getConfig: () => request<AppConfig>('/config'),
   updateConfig: (patch: Partial<AppConfig>) => request<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(patch) }),
   listTitles: () => request<Title[]>('/titles'),

@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import type { Binaries, IncrementalInput, PipelineHooks, PipelineInput, PipelineResult, SourceInfo } from '@pipeline/types'
 import { planEncode, planExternalTrack } from '@pipeline/plan'
 import type { TrackFileInfo } from '@pipeline/probe'
+import type { HardwareInfo } from '@pipeline/hardware'
 import { createServer } from '../..'
 import { openDatabase, type AppDatabase } from '../../db'
 import { ServerEvents } from '../../jobs/events'
@@ -159,7 +160,7 @@ export interface TestServer {
 }
 
 export async function createTestServer(
-  options: { pipeline?: PipelineFn; incremental?: IncrementalFn; outputFolder?: string; concurrency?: number } = {}
+  options: { pipeline?: PipelineFn; incremental?: IncrementalFn; outputFolder?: string; concurrency?: number; hardware?: HardwareInfo } = {}
 ): Promise<TestServer> {
   const db = openDatabase(':memory:')
   const events = new ServerEvents()
@@ -170,7 +171,9 @@ export async function createTestServer(
     binaries: FAKE_BINARIES,
     pipeline: options.pipeline ?? fakePipeline(),
     incremental: options.incremental ?? fakeIncremental(),
-    concurrency: options.concurrency
+    // Tests run one job at a time unless they ask for hardware-derived concurrency
+    concurrency: options.hardware ? undefined : (options.concurrency ?? 1),
+    hardware: options.hardware ?? null
   })
   if (options.outputFolder) db.repos.settings.updateConfig({ outputFolder: options.outputFolder })
 
@@ -179,7 +182,7 @@ export async function createTestServer(
     host: '127.0.0.1',
     port: 0,
     version: 'test',
-    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, probe: fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
+    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, hardware: options.hardware ?? null, probe: fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
     allowedOrigins,
     logLevel: 'silent'
   })
