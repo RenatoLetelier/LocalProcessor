@@ -4,3 +4,9 @@ export interface HealthResponse {
   version: string
   uptimeSeconds: number
 }
+
+export interface ApiError {
+  statusCode: number
+  error: string
+  message: string
+}

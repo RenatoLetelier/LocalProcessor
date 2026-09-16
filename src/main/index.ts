@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { join } from 'node:path'
 import { APP_NAME, DEFAULT_API_HOST, DEFAULT_API_PORT } from '@shared/constants'
 import { startServer } from '@server/index'
+import { DB_FILE_NAME, openDatabase, type AppDatabase } from '@server/db'
 import { createMainWindow, rendererOrigin } from './window'
 import { buildRendererCsp, registerRendererScheme, serveRenderer } from './renderer-protocol'
 
@@ -11,8 +12,9 @@ const apiHost = DEFAULT_API_HOST
 const apiPort = Number(process.env.LP_API_PORT) || DEFAULT_API_PORT
 const apiBaseUrl = `http://${apiHost}:${apiPort}`
 
+let database: AppDatabase | undefined
 let server: FastifyInstance | undefined
-let closingServer = false
+let shuttingDown = false
 
 // One running instance: the API port is fixed and SQLite has a single writer
 if (!app.requestSingleInstanceLock()) {
@@ -32,10 +34,10 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('will-quit', (event) => {
-    if (!server || closingServer) return
+    if (shuttingDown) return
     event.preventDefault()
-    closingServer = true
-    void server.close().finally(() => app.quit())
+    shuttingDown = true
+    void shutdown().finally(() => app.quit())
   })
 
   app.whenReady().then(main).catch(fatal)
@@ -45,14 +47,18 @@ async function main(): Promise<void> {
   electronApp.setAppUserModelId('com.localprocessor.app')
   setupMenu()
 
+  const dataDir = process.env.LP_DATA_DIR || app.getPath('userData')
+  database = openDatabase(join(dataDir, DB_FILE_NAME))
+
   server = await startServer({
     host: apiHost,
     port: apiPort,
     version: app.getVersion(),
+    repos: database.repos,
     allowedOrigins: [rendererOrigin()],
     logLevel: is.dev ? 'info' : 'warn'
   })
-  server.log.info({ node: process.versions.node, electron: process.versions.electron }, 'runtime')
+  server.log.info({ node: process.versions.node, electron: process.versions.electron, dataDir }, 'runtime')
 
   serveRenderer(join(__dirname, '../renderer'), buildRendererCsp(apiBaseUrl))
   ipcMain.handle('app:api-base-url', () => apiBaseUrl)
@@ -62,6 +68,11 @@ async function main(): Promise<void> {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
   })
+}
+
+async function shutdown(): Promise<void> {
+  await server?.close()
+  database?.close()
 }
 
 function setupMenu(): void {
