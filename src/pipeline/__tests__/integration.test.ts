@@ -155,7 +155,7 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
       })
     ).rejects.toBeInstanceOf(ProcessError)
     expect(existsSync(join(root, 'out', '00000000-0000-4000-8000-00000000dead'))).toBe(false)
-    expect(readdirSync(join(root, 'out', '.tmp'), { recursive: false })).toEqual([])
+    expect(existsSync(join(root, 'out', '.tmp'))).toBe(false)
   })
 
   it('kills the child process when the signal aborts', async () => {
