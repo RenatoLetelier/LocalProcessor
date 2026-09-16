@@ -1,0 +1,65 @@
+appId: com.localprocessor.app
+productName: LocalProcessor
+copyright: Copyright © 2026 Renato Letelier
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: dist
+  buildResources: build
+
+# electron-vite output; production node_modules are added automatically
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+# No native modules (SQLite comes with Node itself)
+npmRebuild: false
+
+# Third-party binaries and their licenses, resolved at runtime from process.resourcesPath
+extraResources:
+  - from: resources/licenses
+    to: licenses
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  extraResources:
+    - from: resources/bin/win32-${arch}
+      to: bin/win32-${arch}
+  # Unsigned in v1: Windows SmartScreen shows an "unknown publisher" warning
+  signExecutable: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  license: LICENSE
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  icon: build/icon.png
+  category: public.app-category.video
+  extraResources:
+    - from: resources/bin/darwin-${arch}
+      to: bin/darwin-${arch}
+  # No Developer ID certificate yet: unsigned, not notarized
+  identity: null
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: build/icon.png
+  category: AudioVideo
+  maintainer: renato.letelier@gmail.com
+  extraResources:
+    - from: resources/bin/linux-${arch}
+      to: bin/linux-${arch}
