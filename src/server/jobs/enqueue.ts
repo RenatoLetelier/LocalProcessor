@@ -37,6 +37,10 @@ export interface EnqueueInput {
 export async function enqueueTitle(deps: EnqueueDeps, input: EnqueueInput): Promise<{ title: Title; job: Job }> {
   const { repos, events } = deps
   const config = snapshotJobConfig(repos.settings.getConfig(), input.overrides)
+  const outputInfo = await stat(config.outputFolder).catch(() => undefined)
+  if (!outputInfo?.isDirectory()) {
+    throw conflict(`La carpeta de salida ya no existe: ${config.outputFolder}. Elige otra en Configuración.`)
+  }
 
   if (!isAbsolute(input.sourcePath)) throw badRequest('sourcePath debe ser una ruta absoluta')
   const info = await stat(input.sourcePath).catch(() => undefined)

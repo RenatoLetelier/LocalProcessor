@@ -53,13 +53,14 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
     return reply.code(500).send({ statusCode: 500, error: 'Internal Server Error', message })
   })
 
-  await app.register(cors, { origin: opts.allowedOrigins })
+  // @fastify/cors v11 only preflights GET/HEAD/POST by default; the UI also uses PUT and DELETE
+  await app.register(cors, { origin: opts.allowedOrigins, methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE'] })
   // Movies are large: no per-file size limit, one file per request
   await app.register(multipart, { limits: { fileSize: Number.MAX_SAFE_INTEGER, files: 1 } })
   await app.register(websocket)
 
   await app.register(healthRoutes, { version: opts.version })
-  await app.register(configRoutes, { repos: opts.context.repos })
+  await app.register(configRoutes, { repos: opts.context.repos, events: opts.context.events })
   await app.register(titlesRoutes, { context: opts.context })
   await app.register(jobsRoutes, { context: opts.context, allowedOrigins: opts.allowedOrigins })
 

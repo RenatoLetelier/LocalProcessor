@@ -1,0 +1,185 @@
+import { useEffect, useMemo, useState } from 'react'
+import { bridge } from '@/lib/bridge'
+import type { AppConfig, Standard } from '@shared/config'
+import { SEGMENT_DURATION_RANGE, validateConfig } from '@shared/config-validate'
+import { ApiError } from '@/lib/api'
+import { useAppState } from '@/state/AppState'
+
+const STANDARDS: { id: Standard; label: string; hint: string }[] = [
+  { id: 'hls', label: 'HLS', hint: 'master.m3u8 — Apple, Safari, la mayoría de reproductores' },
+  { id: 'dash', label: 'DASH', hint: 'manifest.mpd — mismos segmentos, sin duplicar video' }
+]
+
+export function Settings() {
+  const { config, saveConfig } = useAppState()
+  const [draft, setDraft] = useState<AppConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (config) setDraft(structuredClone(config))
+  }, [config])
+
+  const problems = useMemo(() => (draft ? validateConfig(draft) : []), [draft])
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(config), [draft, config])
+
+  if (!draft || !config) return null
+
+  const update = (patch: Partial<AppConfig>): void => {
+    setDraft({ ...draft, ...patch })
+    setSaved(false)
+    setServerError(null)
+  }
+
+  const pickFolder = async (): Promise<void> => {
+    const folder = await bridge.pickFolder(draft.outputFolder ?? undefined)
+    if (folder) update({ outputFolder: folder })
+  }
+
+  const toggleStandard = (id: Standard, on: boolean): void =>
+    update({ standards: on ? [...new Set([...draft.standards, id])] : draft.standards.filter((s) => s !== id) })
+
+  const toggleQuality = (label: string, on: boolean): void => {
+    // Keep the ladder in rung definition order regardless of click order
+    const enabled = new Set(draft.qualities)
+    if (on) enabled.add(label)
+    else enabled.delete(label)
+    update({ qualities: Object.keys(draft.rungs).filter((l) => enabled.has(l)) })
+  }
+
+  const setBitrate = (label: string, kbps: number): void =>
+    update({ rungs: { ...draft.rungs, [label]: { ...draft.rungs[label]!, maxBitrateKbps: kbps } } })
+
+  const save = async (): Promise<void> => {
+    setSaving(true)
+    setServerError(null)
+    try {
+      // Only changed keys travel, so a stale field never overwrites a newer value
+      const patch: Partial<AppConfig> = {}
+      for (const key of Object.keys(draft) as (keyof AppConfig)[]) {
+        if (JSON.stringify(draft[key]) !== JSON.stringify(config[key])) (patch as Record<string, unknown>)[key] = draft[key]
+      }
+      await saveConfig(patch)
+      setSaved(true)
+    } catch (error) {
+      setServerError(error instanceof ApiError ? error.message : String(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="stack settings">
+      <div className="card">
+        <h3 className="card__title">Carpeta de salida</h3>
+        <p className="muted">Cada título se publica en una subcarpeta con su identificador. Los cambios afectan solo a los títulos nuevos.</p>
+        <div className="field-row">
+          <input className="input mono" readOnly value={draft.outputFolder ?? ''} placeholder="Sin definir" />
+          <button type="button" className="btn" onClick={() => void pickFolder()}>
+            Cambiar…
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 className="card__title">Estándar de salida</h3>
+        <div className="checks">
+          {STANDARDS.map((s) => (
+            <label key={s.id} className="check">
+              <input type="checkbox" checked={draft.standards.includes(s.id)} onChange={(e) => toggleStandard(s.id, e.target.checked)} />
+              <span>
+                <strong>{s.label}</strong>
+                <span className="muted"> — {s.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 className="card__title">Calidades</h3>
+        <p className="muted">
+          Cada calidad es una caja máxima: el video se escala para caber en ella conservando su aspect ratio y nunca se amplía. El bitrate es
+          un techo; si el origen tiene menos, se respeta el del origen.
+        </p>
+        <table className="table">
+          <thead>
+            <tr>
+              <th />
+              <th>Etiqueta</th>
+              <th>Caja máxima</th>
+              <th>Bitrate máximo (kbps)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(draft.rungs).map(([label, rung]) => (
+              <tr key={label} className={draft.qualities.includes(label) ? '' : 'table__row--muted'}>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Generar ${label}`}
+                    checked={draft.qualities.includes(label)}
+                    onChange={(e) => toggleQuality(label, e.target.checked)}
+                  />
+                </td>
+                <td>{label}</td>
+                <td className="muted">
+                  {rung.width}×{rung.height}
+                </td>
+                <td>
+                  <input
+                    className="input input--sm"
+                    type="number"
+                    min={1}
+                    step={100}
+                    value={rung.maxBitrateKbps}
+                    onChange={(e) => setBitrate(label, Number(e.target.value))}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="muted">Las calidades personalizadas (por ejemplo 1440p) se agregan por la API: <code>PUT /config</code>.</p>
+      </div>
+
+      <div className="card">
+        <h3 className="card__title">Segmentos</h3>
+        <label className="field">
+          <span>Duración de cada segmento (segundos)</span>
+          <input
+            className="input input--sm"
+            type="number"
+            min={SEGMENT_DURATION_RANGE.min}
+            max={SEGMENT_DURATION_RANGE.max}
+            value={draft.segmentDurationSeconds}
+            onChange={(e) => update({ segmentDurationSeconds: Number(e.target.value) })}
+          />
+        </label>
+        <p className="muted">Fija el GOP del codificador (duración × fps) para que cada segmento empiece en un keyframe. Apple recomienda 6 s.</p>
+      </div>
+
+      {problems.length > 0 && (
+        <div className="alert alert--error">
+          <ul>
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {serverError && <div className="alert alert--error">{serverError}</div>}
+
+      <div className="actions actions--sticky">
+        <button type="button" className="btn btn--primary" disabled={!dirty || problems.length > 0 || saving} onClick={() => void save()}>
+          {saving ? 'Guardando…' : 'Guardar cambios'}
+        </button>
+        <button type="button" className="btn" disabled={!dirty || saving} onClick={() => setDraft(structuredClone(config))}>
+          Descartar
+        </button>
+        {saved && !dirty && <span className="muted">Guardado ✓</span>}
+      </div>
+    </div>
+  )
+}

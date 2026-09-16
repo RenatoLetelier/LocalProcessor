@@ -88,6 +88,20 @@ describe('POST /titles', () => {
       jobs: [{ id: job.id, status: 'done', progress: 100 }]
     })
     expect(existsSync(join(root, title.id, 'metadata.json'))).toBe(true)
+
+    const files = await server.app.inject({ method: 'GET', url: `/titles/${title.id}/files` })
+    expect(files.json()).toMatchObject({
+      root: join(root, title.id),
+      exists: true,
+      fileCount: 1,
+      entries: [{ name: 'metadata.json', kind: 'file', fileCount: 1 }]
+    })
+  })
+
+  it('reports a missing output folder instead of failing', async () => {
+    const { title } = (await post({ sourcePath: join(root, 'movie.mkv') })).json()
+    const files = await server.app.inject({ method: 'GET', url: `/titles/${title.id}/files` })
+    expect(files.json()).toMatchObject({ exists: false, entries: [] })
   })
 
   it('refuses to register the same source twice', async () => {

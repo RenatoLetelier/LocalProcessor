@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path'
 import type { AppConfig } from '@shared/config'
 import { SEGMENT_DURATION_RANGE, validateConfig } from '@shared/config-validate'
 import type { Repositories } from '../db/repositories'
+import type { ServerEvents } from '../jobs/events'
 
 const rungSchema = {
   type: 'object',
@@ -32,7 +33,7 @@ const configPatchSchema = {
   }
 } as const
 
-export const configRoutes: FastifyPluginAsync<{ repos: Repositories }> = async (app, { repos }) => {
+export const configRoutes: FastifyPluginAsync<{ repos: Repositories; events?: ServerEvents }> = async (app, { repos, events }) => {
   app.get('/config', async (): Promise<AppConfig> => repos.settings.getConfig())
 
   app.put<{ Body: Partial<AppConfig> }>('/config', { schema: { body: configPatchSchema } }, async (request, reply) => {
@@ -51,7 +52,9 @@ export const configRoutes: FastifyPluginAsync<{ repos: Repositories }> = async (
       })
     }
 
-    return repos.settings.updateConfig(patch)
+    const updated = repos.settings.updateConfig(patch)
+    events?.emit({ type: 'config.updated', config: updated })
+    return updated
   })
 }
 

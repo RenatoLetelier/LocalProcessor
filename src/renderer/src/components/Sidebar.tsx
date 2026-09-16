@@ -1,13 +1,15 @@
-import type { ApiStatus } from '@/lib/useApiStatus'
 import { SECTIONS, type SectionId } from '@/sections'
+import { useAppState } from '@/state/AppState'
 
 interface SidebarProps {
   active: SectionId
   onSelect: (id: SectionId) => void
-  apiStatus: ApiStatus
 }
 
-export function Sidebar({ active, onSelect, apiStatus }: SidebarProps) {
+export function Sidebar({ active, onSelect }: SidebarProps) {
+  const { jobs, connection, apiVersion } = useAppState()
+  const activeJobs = jobs.filter((j) => j.status === 'queued' || j.status === 'running').length
+
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
@@ -23,30 +25,20 @@ export function Sidebar({ active, onSelect, apiStatus }: SidebarProps) {
             className={`sidebar__item${section.id === active ? ' sidebar__item--active' : ''}`}
             onClick={() => onSelect(section.id)}
           >
-            {section.label}
+            <span>{section.label}</span>
+            {section.id === 'jobs' && activeJobs > 0 && <span className="sidebar__count">{activeJobs}</span>}
           </button>
         ))}
       </nav>
 
       <footer className="sidebar__footer">
-        <ApiStatusBadge status={apiStatus} />
+        <div className={`api-status api-status--${connection}`}>
+          <span className="api-status__dot" aria-hidden="true" />
+          <span className="api-status__text">
+            <span>{connection === 'online' ? `API v${apiVersion ?? '?'}` : connection === 'offline' ? 'API sin conexión' : 'Conectando…'}</span>
+          </span>
+        </div>
       </footer>
     </aside>
-  )
-}
-
-function ApiStatusBadge({ status }: { status: ApiStatus }) {
-  const host = status.baseUrl?.replace(/^https?:\/\//, '') ?? '…'
-  const label =
-    status.state === 'ok' ? `API v${status.version}` : status.state === 'error' ? 'API sin respuesta' : 'Conectando'
-
-  return (
-    <div className={`api-status api-status--${status.state}`} title={status.state === 'error' ? status.message : host}>
-      <span className="api-status__dot" aria-hidden="true" />
-      <span className="api-status__text">
-        <span>{label}</span>
-        <span className="api-status__host">{host}</span>
-      </span>
-    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, Menu } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import type { FastifyInstance } from 'fastify'
 import { join } from 'node:path'
@@ -9,6 +9,7 @@ import { ServerEvents } from '@server/jobs/events'
 import { JobRunner } from '@server/jobs/runner'
 import { resolveBinaries } from '@pipeline/binaries'
 import { createMainWindow, rendererOrigin } from './window'
+import { registerIpcHandlers } from './ipc'
 import { buildRendererCsp, registerRendererScheme, serveRenderer } from './renderer-protocol'
 
 const apiHost = DEFAULT_API_HOST
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
   server.log.info({ node: process.versions.node, electron: process.versions.electron, dataDir, binaries }, 'runtime')
 
   serveRenderer(join(__dirname, '../renderer'), buildRendererCsp(apiBaseUrl))
-  ipcMain.handle('app:api-base-url', () => apiBaseUrl)
+  registerIpcHandlers(apiBaseUrl, database.repos)
   app.on('browser-window-created', (_event, window) => optimizer.watchWindowShortcuts(window))
 
   openWindow()

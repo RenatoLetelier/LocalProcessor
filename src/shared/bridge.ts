@@ -1,4 +1,11 @@
 // Contract between preload (implements) and renderer (consumes) via window.app
 export interface AppBridge {
   getApiBaseUrl(): Promise<string>
+  // Native dialogs; empty array / null when the user cancels
+  pickVideoFiles(): Promise<string[]>
+  pickFolder(defaultPath?: string): Promise<string | null>
+  // Opens a title folder in the OS file manager
+  openFolder(path: string): Promise<void>
+  // Absolute path of a File dropped onto the window
+  pathForFile(file: File): string
 }

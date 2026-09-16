@@ -3,6 +3,7 @@ import type { AppBridge } from '@shared/bridge'
 
 declare global {
   interface Window {
-    app: AppBridge
+    // Injected by the preload; absent when the renderer runs in a plain browser
+    app?: AppBridge
   }
 }

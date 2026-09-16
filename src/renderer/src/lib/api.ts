@@ -1,18 +1,50 @@
-import type { HealthResponse } from '@shared/api'
+import type { AppConfig } from '@shared/config'
+import { bridge } from '@/lib/bridge'
+import type { CreateTitleResponse, HealthResponse, TitleDetail, TitleFilesResponse } from '@shared/api'
+import type { Job, JobStatus, Title } from '@shared/model'
 
 let baseUrlPromise: Promise<string> | undefined
 
 export function apiBaseUrl(): Promise<string> {
-  baseUrlPromise ??= window.app.getApiBaseUrl()
+  baseUrlPromise ??= bridge.getApiBaseUrl()
   return baseUrlPromise
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${await apiBaseUrl()}${path}`)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json() as Promise<T>
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly body: Record<string, unknown> = {}
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${await apiBaseUrl()}${path}`, {
+    ...init,
+    headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers }
+  })
+  if (res.status === 204) return undefined as T
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    throw new ApiError(res.status, typeof body.message === 'string' ? body.message : `${res.status} ${res.statusText}`, body)
+  }
+  return body as T
 }
 
 export const api = {
-  health: () => apiGet<HealthResponse>('/health')
+  health: () => request<HealthResponse>('/health'),
+  getConfig: () => request<AppConfig>('/config'),
+  updateConfig: (patch: Partial<AppConfig>) => request<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(patch) }),
+  listTitles: () => request<Title[]>('/titles'),
+  getTitle: (id: string) => request<TitleDetail>(`/titles/${id}`),
+  getTitleFiles: (id: string) => request<TitleFilesResponse>(`/titles/${id}/files`),
+  deleteTitle: (id: string) => request<void>(`/titles/${id}`, { method: 'DELETE' }),
+  createTitle: (sourcePath: string, name?: string) =>
+    request<CreateTitleResponse>('/titles', { method: 'POST', body: JSON.stringify({ sourcePath, ...(name ? { name } : {}) }) }),
+  listJobs: (status: JobStatus[] | 'all' = 'all') =>
+    request<Job[]>(`/jobs?status=${status === 'all' ? 'all' : status.join(',')}`),
+  cancelJob: (id: string) => request<Job>(`/jobs/${id}/cancel`, { method: 'POST' })
 }

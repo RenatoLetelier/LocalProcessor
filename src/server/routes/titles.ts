@@ -7,6 +7,7 @@ import { HttpError, badRequest, notFound } from '../errors'
 import type { ConfigOverrides } from '../jobs/config'
 import { enqueueTitle } from '../jobs/enqueue'
 import { saveUpload, uploadPath } from '../jobs/uploads'
+import { readFolderTree } from '../jobs/folder-tree'
 
 interface CreateTitleBody {
   sourcePath?: unknown
@@ -84,6 +85,12 @@ export const titlesRoutes: FastifyPluginAsync<{ context: ServerContext }> = asyn
       subtitle_tracks: repos.subtitleTracks.listByTitle(title.id),
       jobs: repos.jobs.listByTitle(title.id)
     }
+  })
+
+  app.get<{ Params: { id: string } }>('/titles/:id/files', async (request) => {
+    const title = repos.titles.get(request.params.id)
+    if (!title) throw notFound('Título no encontrado')
+    return { root: title.output_folder, ...(await readFolderTree(title.output_folder)) }
   })
 
   // Removes the title, its output folder and (only) sources uploaded through the API
