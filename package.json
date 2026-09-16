@@ -1,0 +1,33 @@
+{
+  "name": "localprocessor",
+  "productName": "LocalProcessor",
+  "version": "0.1.0",
+  "description": "Motor de transcodificación VOD: convierte películas a HLS/DASH para que otro sistema las sirva por streaming",
+  "author": "Renato Letelier",
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json",
+    "postinstall": "install-electron"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "4.0.0",
+    "@fastify/cors": "11.3.0",
+    "fastify": "5.12.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "44.4.1",
+    "electron-vite": "5.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  }
+}
