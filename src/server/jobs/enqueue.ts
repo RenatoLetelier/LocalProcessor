@@ -1,0 +1,93 @@
+import { stat } from 'node:fs/promises'
+import { basename, extname, isAbsolute, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import type { Job, Title } from '@shared/model'
+import { planEncode } from '@pipeline/plan'
+import { ProbeError, probeSource } from '@pipeline/probe'
+import { ProcessError } from '@pipeline/exec'
+import type { Binaries, SourceInfo } from '@pipeline/types'
+import type { Repositories } from '../db/repositories'
+import { badRequest, conflict } from '../errors'
+import { snapshotJobConfig, type ConfigOverrides } from './config'
+import { estimatePeakBytes, formatBytes, freeBytes } from './estimate'
+import type { ServerEvents } from './events'
+import { sourceHash } from './source-hash'
+
+export type Prober = (binaries: Binaries, path: string) => Promise<SourceInfo>
+
+export interface EnqueueDeps {
+  repos: Repositories
+  events: ServerEvents
+  binaries: Binaries
+  probe?: Prober
+  // Disabled in tests that run on tiny temp folders
+  checkDiskSpace?: boolean
+}
+
+export interface EnqueueInput {
+  sourcePath: string
+  sourceManaged?: boolean
+  titleId?: string
+  name?: string
+  overrides?: ConfigOverrides
+}
+
+// POST /titles without the HTTP: validates, probes, checks disk and creates the
+// title + initial job. Throws HttpError for every user-facing failure.
+export async function enqueueTitle(deps: EnqueueDeps, input: EnqueueInput): Promise<{ title: Title; job: Job }> {
+  const { repos, events } = deps
+  const config = snapshotJobConfig(repos.settings.getConfig(), input.overrides)
+
+  if (!isAbsolute(input.sourcePath)) throw badRequest('sourcePath debe ser una ruta absoluta')
+  const info = await stat(input.sourcePath).catch(() => undefined)
+  if (!info) throw badRequest(`El archivo no existe: ${input.sourcePath}`)
+  if (!info.isFile()) throw badRequest(`La ruta no es un archivo: ${input.sourcePath}`)
+
+  const existing = repos.titles.findBySourcePath(input.sourcePath)
+  if (existing) {
+    throw conflict(`El archivo ya está registrado como título ${existing.id}`, { titleId: existing.id })
+  }
+
+  const probe = deps.probe ?? probeSource
+  const source = await probe(deps.binaries, input.sourcePath).catch((error: unknown) => {
+    if (error instanceof ProbeError || error instanceof ProcessError) {
+      throw badRequest(`No se pudo analizar el archivo: ${error.message}`)
+    }
+    throw error
+  })
+
+  const plan = planEncode(source, config)
+  if (deps.checkDiskSpace !== false) {
+    const required = estimatePeakBytes(source, plan)
+    const free = await freeBytes(config.outputFolder)
+    if (free < required) {
+      throw badRequest(
+        `Espacio insuficiente en ${config.outputFolder}: se necesitan ~${formatBytes(required)} y hay ${formatBytes(free)} libres`,
+        { requiredBytes: required, freeBytes: free }
+      )
+    }
+  }
+
+  const id = input.titleId ?? randomUUID()
+  repos.titles.create({
+    id,
+    name: input.name?.trim() || basename(input.sourcePath, extname(input.sourcePath)),
+    source_path: input.sourcePath,
+    source_managed: input.sourceManaged ?? false,
+    output_folder: join(config.outputFolder, id)
+  })
+  const title = repos.titles.update(id, {
+    source_hash: await sourceHash(input.sourcePath),
+    source_width: source.video.displayWidth,
+    source_height: source.video.displayHeight,
+    source_video_bitrate: source.video.bitrate,
+    source_fps: source.video.fps.num / source.video.fps.den,
+    source_video_codec: source.video.codec,
+    duration_seconds: source.durationSeconds
+  })!
+  const job = repos.jobs.create({ title_id: id, tipo: 'inicial', config })
+
+  events.emit({ type: 'title.updated', title })
+  events.emit({ type: 'job.updated', job })
+  return { title, job }
+}

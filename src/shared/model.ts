@@ -18,6 +18,8 @@ export interface Title {
   source_video_codec: string | null
   duration_seconds: number | null
   output_folder: string
+  // True when the source file was uploaded through the API and is ours to delete
+  source_managed: boolean
   status: TitleStatus
   error: string | null
   created_at: string
@@ -68,6 +70,7 @@ export interface Job {
   progress: number
   current_step: string | null
   error: string | null
+  attempts: number
   created_at: string
   started_at: string | null
   finished_at: string | null

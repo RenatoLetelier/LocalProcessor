@@ -10,7 +10,7 @@ export interface NewJob {
   status?: JobStatus
 }
 
-const MUTABLE_COLUMNS = ['status', 'progress', 'current_step', 'error', 'started_at', 'finished_at'] as const
+const MUTABLE_COLUMNS = ['status', 'progress', 'current_step', 'error', 'attempts', 'started_at', 'finished_at'] as const
 
 export type JobPatch = Partial<Pick<Job, (typeof MUTABLE_COLUMNS)[number]>>
 
@@ -19,6 +19,7 @@ export interface JobsRepository {
   get(id: string): Job | undefined
   list(filter?: { status?: JobStatus | JobStatus[] }): Job[]
   listByTitle(titleId: string): Job[]
+  nextQueued(): Job | undefined
   update(id: string, patch: JobPatch): Job | undefined
 }
 
@@ -30,6 +31,7 @@ export function createJobsRepository(db: DatabaseSync): JobsRepository {
   const selectById = db.prepare('SELECT * FROM jobs WHERE id = ?')
   const selectAll = db.prepare('SELECT * FROM jobs ORDER BY created_at')
   const selectByTitle = db.prepare('SELECT * FROM jobs WHERE title_id = ? ORDER BY created_at')
+  const selectNextQueued = db.prepare("SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1")
 
   const get = (id: string): Job | undefined => asRow<Job>(selectById.get(id))
 
@@ -56,6 +58,7 @@ export function createJobsRepository(db: DatabaseSync): JobsRepository {
       )
     },
     listByTitle: (titleId) => asRows<Job>(selectByTitle.all(titleId)),
+    nextQueued: () => asRow<Job>(selectNextQueued.get()),
     update(id, patch) {
       updateColumns(db, 'jobs', id, patch, MUTABLE_COLUMNS)
       return get(id)

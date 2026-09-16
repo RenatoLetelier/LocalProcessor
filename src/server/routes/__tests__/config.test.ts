@@ -2,20 +2,12 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { DEFAULT_CONFIG } from '@shared/config'
-import { openDatabase } from '../../db'
-import { createServer } from '../..'
+import { createTestServer } from './helpers'
 
 let app: FastifyInstance
 
 beforeEach(async () => {
-  app = await createServer({
-    host: '127.0.0.1',
-    port: 0,
-    version: 'test',
-    repos: openDatabase(':memory:').repos,
-    allowedOrigins: [],
-    logLevel: 'silent'
-  })
+  app = (await createTestServer()).app
 })
 
 afterEach(() => app.close())

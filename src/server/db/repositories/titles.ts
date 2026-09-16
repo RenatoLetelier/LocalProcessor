@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Title, TitleStatus } from '@shared/model'
-import { asRow, asRows, newId, now, updateColumns } from './common'
+import { newId, now, updateColumns } from './common'
 
 export interface NewTitle {
   id?: string
   name: string
   source_path: string
+  source_managed?: boolean
   output_folder: string
   status?: TitleStatus
 }
@@ -39,15 +40,21 @@ export interface TitlesRepository {
 
 export function createTitlesRepository(db: DatabaseSync): TitlesRepository {
   const insert = db.prepare(`
-    INSERT INTO titles (id, name, source_path, output_folder, status, created_at, updated_at)
-    VALUES (@id, @name, @source_path, @output_folder, @status, @created_at, @updated_at)
+    INSERT INTO titles (id, name, source_path, source_managed, output_folder, status, created_at, updated_at)
+    VALUES (@id, @name, @source_path, @source_managed, @output_folder, @status, @created_at, @updated_at)
   `)
   const selectById = db.prepare('SELECT * FROM titles WHERE id = ?')
   const selectBySource = db.prepare('SELECT * FROM titles WHERE source_path = ? ORDER BY created_at DESC LIMIT 1')
   const selectAll = db.prepare('SELECT * FROM titles ORDER BY created_at DESC')
   const deleteById = db.prepare('DELETE FROM titles WHERE id = ?')
 
-  const get = (id: string): Title | undefined => asRow<Title>(selectById.get(id))
+  // SQLite has no boolean type: source_managed travels as 0/1
+  const fromRow = (row: unknown): Title | undefined => {
+    if (!row) return undefined
+    const raw = row as Omit<Title, 'source_managed'> & { source_managed: number }
+    return { ...raw, source_managed: raw.source_managed === 1 }
+  }
+  const get = (id: string): Title | undefined => fromRow(selectById.get(id))
 
   return {
     create(input) {
@@ -57,6 +64,7 @@ export function createTitlesRepository(db: DatabaseSync): TitlesRepository {
         id,
         name: input.name,
         source_path: input.source_path,
+        source_managed: input.source_managed ? 1 : 0,
         output_folder: input.output_folder,
         status: input.status ?? 'queued',
         created_at: timestamp,
@@ -65,8 +73,8 @@ export function createTitlesRepository(db: DatabaseSync): TitlesRepository {
       return get(id)!
     },
     get,
-    findBySourcePath: (sourcePath) => asRow<Title>(selectBySource.get(sourcePath)),
-    list: () => asRows<Title>(selectAll.all()),
+    findBySourcePath: (sourcePath) => fromRow(selectBySource.get(sourcePath)),
+    list: () => selectAll.all().map((row) => fromRow(row)!),
     update(id, patch) {
       updateColumns(db, 'titles', id, { ...patch, updated_at: now() }, MUTABLE_COLUMNS)
       return get(id)

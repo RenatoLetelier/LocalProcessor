@@ -117,6 +117,7 @@ export async function processTitle(
     return { titleId: input.titleId, outputFolder: finalDir, source, plan, metadata }
   } catch (error) {
     await rm(workDir, { recursive: true, force: true }).catch(() => undefined)
+    await rmdir(dirname(workDir)).catch(() => undefined)
     throw error
   }
 }
