@@ -70,6 +70,9 @@ export async function processTitle(
       throw new PipelineError('plan', `Ninguna calidad configurada aplica a este origen (${reasons.join('; ')})`)
     }
     for (const item of plan.skipped) hooks.onLog?.(`omitido ${item.kind} ${item.id}: ${item.reason}`)
+    for (const r of plan.renditions) {
+      if (r.nativeFallback) hooks.onLog?.(`ninguna calidad configurada aplica: se genera ${r.label} a resolución nativa (${r.width}×${r.height})`)
+    }
     assertPathLengths(workDir, plan)
 
     report('encode', 0)

@@ -111,6 +111,33 @@ describe('planEncode', () => {
   })
 })
 
+describe('planEncode native fallback', () => {
+  it('serves the source at its own size when every enabled rung would upscale', () => {
+    const plan = planEncode(source({ width: 640, height: 360, displayWidth: 640, displayHeight: 360, bitrate: 900_000 }), options)
+    expect(plan.renditions).toEqual([
+      { label: '360p', width: 640, height: 360, maxBitrateKbps: 900, gopFrames: 144, nativeFallback: true }
+    ])
+    expect(plan.skipped.filter((s) => s.kind === 'rendition')).toHaveLength(4)
+  })
+
+  it('takes the smallest enabled ceiling when the source bitrate is unknown', () => {
+    const plan = planEncode(source({ width: 800, height: 334, displayWidth: 800, displayHeight: 334, bitrate: null }), options)
+    expect(plan.renditions[0]).toMatchObject({ label: '334p', width: 800, height: 334, maxBitrateKbps: 1500 })
+  })
+
+  it('never produces a native rung when a configured one applies', () => {
+    const plan = planEncode(source({ width: 854, height: 480, displayWidth: 854, displayHeight: 480 }), options)
+    expect(plan.renditions.map((r) => r.label)).toEqual(['480p'])
+    expect(plan.renditions[0]?.nativeFallback).toBeUndefined()
+  })
+
+  it('avoids clashing with an enabled label that happens to match the height', () => {
+    const rungs = { ...DEFAULT_CONFIG.rungs, '360p': { width: 1280, height: 720, maxBitrateKbps: 2000 } }
+    const plan = planEncode(source({ width: 640, height: 360, displayWidth: 640, displayHeight: 360 }), { ...options, rungs, qualities: ['360p'] })
+    expect(plan.renditions[0]?.label).toBe('360p-native')
+  })
+})
+
 describe('planAudio', () => {
   it('copies streamable codecs untouched', () => {
     expect(planAudio(audio({ codec: 'eac3', channels: 6, language: 'eng', isDefault: true }))).toEqual({

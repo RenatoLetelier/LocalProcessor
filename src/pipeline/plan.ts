@@ -55,6 +55,12 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
     })
   }
 
+  // Every enabled rung would upscale: serve the source at its own size rather than reject it
+  const enabled = options.qualities.filter((label) => label in options.rungs)
+  if (renditions.length === 0 && enabled.length > 0) {
+    renditions.push(nativeRendition(source, options, enabled, gop))
+  }
+
   const audio = source.audio.map(planAudio)
   for (const subtitle of source.subtitles) {
     skipped.push({ kind: 'subtitle', id: String(subtitle.index), reason: 'subtítulos: pendiente (fase 8)' })
@@ -67,6 +73,22 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
     renditions,
     audio,
     skipped
+  }
+}
+
+// Labelled by height like a normal rung; the ceiling is the smallest enabled rung's
+function nativeRendition(source: SourceInfo, options: PlanOptions, enabled: string[], gop: number): RenditionPlan {
+  const { displayWidth, displayHeight } = source.video
+  const smallestCeiling = Math.min(...enabled.map((label) => options.rungs[label]!.maxBitrateKbps))
+  const sourceKbps = source.video.bitrate ? Math.floor(source.video.bitrate / 1000) : null
+  const base = `${displayHeight}p`
+  return {
+    label: enabled.includes(base) ? `${base}-native` : base,
+    width: toEven(displayWidth),
+    height: toEven(displayHeight),
+    maxBitrateKbps: sourceKbps ? Math.min(smallestCeiling, sourceKbps) : smallestCeiling,
+    gopFrames: gop,
+    nativeFallback: true
   }
 }
 

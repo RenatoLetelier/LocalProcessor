@@ -1,5 +1,5 @@
 // Runs the pipeline on one file without Electron or the database:
-//   npm run process -- <input> --out <folder> [--quality 720p] [--segment 6] [--standards hls,dash] [--preset medium] [--verbose]
+//   npm run process -- <input> --out <folder> [--quality 1080p,720p,480p] [--segment 6] [--standards hls,dash] [--preset medium] [--verbose]
 import { randomUUID } from 'node:crypto'
 import { basename, extname, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -10,7 +10,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     out: { type: 'string' },
-    quality: { type: 'string', default: '720p' },
+    quality: { type: 'string', default: DEFAULT_CONFIG.qualities.join(',') },
     segment: { type: 'string', default: String(DEFAULT_CONFIG.segmentDurationSeconds) },
     standards: { type: 'string', default: 'hls' },
     preset: { type: 'string', default: 'medium' },
@@ -22,7 +22,7 @@ const { values, positionals } = parseArgs({
 
 const input = positionals[0]
 if (!input || !values.out) {
-  console.error('Uso: npm run process -- <archivo> --out <carpeta> [--quality 720p] [--segment 6] [--standards hls,dash]')
+  console.error('Uso: npm run process -- <archivo> --out <carpeta> [--quality 1080p,720p] [--segment 6] [--standards hls,dash]')
   process.exit(2)
 }
 
@@ -43,7 +43,7 @@ processTitle(
     standards: values.standards.split(',').map((s) => s.trim() as Standard),
     plan: {
       rungs: DEFAULT_CONFIG.rungs,
-      qualities: [values.quality],
+      qualities: values.quality.split(',').map((q) => q.trim()).filter(Boolean),
       segmentDurationSeconds: Number(values.segment)
     },
     videoEncoder: { preset: values.preset }

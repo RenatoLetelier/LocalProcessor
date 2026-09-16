@@ -34,7 +34,7 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
         sourcePath: sample,
         outputRoot: join(root, 'out'),
         standards: ['hls'],
-        plan: { rungs: DEFAULT_CONFIG.rungs, qualities: ['720p'], segmentDurationSeconds: 2 },
+        plan: { rungs: DEFAULT_CONFIG.rungs, qualities: DEFAULT_CONFIG.qualities, segmentDurationSeconds: 2 },
         videoEncoder: { preset: 'veryfast' }
       },
       { onProgress: (e) => events.push(e), onLog: (l) => logs.push(l) }
@@ -51,10 +51,12 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
       expect.arrayContaining([
         'master.m3u8',
         'metadata.json',
+        'video/1080p/playlist.m3u8',
         'video/720p/init.mp4',
         'video/720p/playlist.m3u8',
         'video/720p/seg_00001.m4s',
         'video/720p/seg_00003.m4s',
+        'video/480p/playlist.m3u8',
         'audio/1_es_aac/playlist.m3u8',
         'audio/2_en_aac/playlist.m3u8'
       ])
@@ -75,7 +77,6 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(master).toContain('LANGUAGE="es",NAME="Español",DEFAULT=YES')
     expect(master).toContain('LANGUAGE="en",NAME="English"')
     expect(master).toContain('CHANNELS="6"')
-    expect(master).toMatch(/RESOLUTION=1280x534/)
   })
 
   it('writes a metadata.json consistent with the output', () => {
@@ -86,7 +87,11 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
       name: 'Sample',
       standards: ['hls'],
       manifests: { hls: 'master.m3u8' },
-      renditions: [{ label: '720p', width: 1280, height: 534, codec: 'h264', path: 'video/720p' }],
+      renditions: [
+        { label: '1080p', width: 1920, height: 800, codec: 'h264', path: 'video/1080p' },
+        { label: '720p', width: 1280, height: 534, codec: 'h264', path: 'video/720p' },
+        { label: '480p', width: 854, height: 356, codec: 'h264', path: 'video/480p' }
+      ],
       audioTracks: [
         { id: '1_es_aac', language: 'es', codec: 'aac', channels: 2, path: 'audio/1_es_aac' },
         { id: '2_en_aac', language: 'en', codec: 'aac', channels: 6, path: 'audio/2_en_aac' }
@@ -95,10 +100,28 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     })
     expect(metadata.durationSeconds).toBeCloseTo(6, 0)
     expect(metadata.segmentDurationSeconds).toBeCloseTo(2.002, 3)
-    // The synthetic clip is below the 720p ceiling, so rule 1 caps the rung at the source bitrate
-    expect(metadata.renditions[0].maxBitrate).toBeLessThanOrEqual(3_000_000)
-    expect(metadata.renditions[0].bitrate).toBeGreaterThan(0)
+    // The synthetic clip is below the 1080p ceiling, so rule 1 caps the top rung at the source bitrate
+    expect(metadata.renditions[0].maxBitrate).toBeLessThanOrEqual(6_000_000)
+    expect(metadata.renditions.every((r: { bitrate: number }) => r.bitrate > 0)).toBe(true)
   })
+
+  it('falls back to a native rendition for sources smaller than every rung', async () => {
+    const small = generateSample(binaries!.ffmpeg, { out: join(root, 'small.mkv'), durationSeconds: 3, size: '320x180' })
+    const result = await processTitle(
+      binaries!,
+      {
+        titleId: '00000000-0000-4000-8000-000000000002',
+        name: 'Small',
+        sourcePath: small,
+        outputRoot: join(root, 'out'),
+        standards: ['hls'],
+        plan: { rungs: DEFAULT_CONFIG.rungs, qualities: DEFAULT_CONFIG.qualities, segmentDurationSeconds: 2 },
+        videoEncoder: { preset: 'veryfast' }
+      }
+    )
+    expect(result.plan.renditions).toEqual([expect.objectContaining({ label: '180p', width: 320, height: 180, nativeFallback: true })])
+    expect(existsSync(join(result.outputFolder, 'video/180p/playlist.m3u8'))).toBe(true)
+  }, 60_000)
 
   it('leaves nothing behind when a run fails', async () => {
     await expect(

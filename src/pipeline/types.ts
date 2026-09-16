@@ -62,6 +62,8 @@ export interface RenditionPlan {
   height: number
   maxBitrateKbps: number
   gopFrames: number
+  // Set when no configured rung applied and the source is served at its own size
+  nativeFallback?: true
 }
 
 export type AudioAction = 'copy' | 'transcode'
