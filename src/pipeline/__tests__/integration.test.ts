@@ -33,7 +33,7 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
         name: 'Sample',
         sourcePath: sample,
         outputRoot: join(root, 'out'),
-        standards: ['hls'],
+        standards: ['hls', 'dash'],
         plan: { rungs: DEFAULT_CONFIG.rungs, qualities: DEFAULT_CONFIG.qualities, segmentDurationSeconds: 2 },
         videoEncoder: { preset: 'veryfast' }
       },
@@ -50,6 +50,7 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(files).toEqual(
       expect.arrayContaining([
         'master.m3u8',
+        'manifest.mpd',
         'metadata.json',
         'video/1080p/playlist.m3u8',
         'video/720p/init.mp4',
@@ -79,14 +80,33 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(master).toContain('CHANNELS="6"')
   })
 
+  it('describes the same segments in a static DASH manifest', () => {
+    const mpd = readFileSync(join(outputFolder, 'manifest.mpd'), 'utf8')
+    expect(mpd).toContain('type="static"')
+    expect(mpd).toContain('profiles="urn:mpeg:dash:profile:isoff-live:2011"')
+    for (const label of ['1080p', '720p', '480p']) {
+      expect(mpd).toContain(`initialization="video/${label}/init.mp4" media="video/${label}/seg_$Number%05d$.m4s"`)
+    }
+    expect(mpd).toContain('lang="es"')
+    expect(mpd).toContain('<Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>')
+    expect(mpd).toContain('audio_channel_configuration:2011" value="6"')
+    // One set of segments serves both manifests: every .m4s on disk is listed by exactly one HLS media playlist
+    const files = readdirSync(outputFolder, { recursive: true }).map(String)
+    const segments = files.filter((f) => f.endsWith('.m4s'))
+    const listed = files
+      .filter((f) => f.endsWith('playlist.m3u8'))
+      .reduce((sum, f) => sum + (readFileSync(join(outputFolder, f), 'utf8').match(/#EXTINF/g)?.length ?? 0), 0)
+    expect(segments.length).toBe(listed)
+  })
+
   it('writes a metadata.json consistent with the output', () => {
     const metadata = JSON.parse(readFileSync(join(outputFolder, 'metadata.json'), 'utf8'))
     expect(metadata).toMatchObject({
       schemaVersion: 1,
       titleId,
       name: 'Sample',
-      standards: ['hls'],
-      manifests: { hls: 'master.m3u8' },
+      standards: ['hls', 'dash'],
+      manifests: { hls: 'master.m3u8', dash: 'manifest.mpd' },
       renditions: [
         { label: '1080p', width: 1920, height: 800, codec: 'h264', path: 'video/1080p' },
         { label: '720p', width: 1280, height: 534, codec: 'h264', path: 'video/720p' },
