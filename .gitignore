@@ -10,3 +10,4 @@ resources/bin/
 Thumbs.db
 samples/
 resources/licenses/
+.claude/

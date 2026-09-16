@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Sidebar } from '@/components/Sidebar'
+import { Api } from '@/sections/Api'
 import { FirstRun } from '@/sections/FirstRun'
 import { Jobs } from '@/sections/Jobs'
 import { Library } from '@/sections/Library'
@@ -48,6 +49,7 @@ function Shell() {
               {active === 'process' && <Process onNavigate={navigate} />}
               {active === 'jobs' && <Jobs />}
               {active === 'library' && <Library selectedId={selectedTitle} onSelect={setSelectedTitle} />}
+              {active === 'api' && <Api />}
               {active === 'settings' && <Settings />}
             </section>
           </>

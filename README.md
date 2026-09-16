@@ -73,7 +73,9 @@ interno.
 | `GET` / `PUT` | `/config` | Configuración (estándares, calidades, segmentos, codificador…) |
 | `GET` | `/system` | Codificadores detectados y concurrencia |
 
-La API escucha solo en `127.0.0.1` y no tiene autenticación (uso local).
+La API escucha solo en `127.0.0.1` y no tiene autenticación (uso local). La
+sección **API** de la aplicación explica cómo entregar una película desde otro
+programa, con comandos `curl` listos para pegar en Postman.
 
 ## Desarrollo
 
