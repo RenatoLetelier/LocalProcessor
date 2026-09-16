@@ -1,0 +1,103 @@
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { Standard } from '@shared/config'
+import { run } from './exec'
+import {
+  DASH_MANIFEST,
+  INIT_SEGMENT,
+  MASTER_PLAYLIST,
+  MEDIA_PLAYLIST,
+  SEGMENT_TEMPLATE,
+  audioDir,
+  encodedAudioFile,
+  encodedVideoFile,
+  renditionDir
+} from './layout'
+import type { Binaries, EncodePlan } from './types'
+
+// Folder names inside the job work dir; Shaka runs with the work dir as cwd so
+// no absolute path (which may contain "," or "=") ends up in a stream descriptor.
+export const ENC_DIR = 'enc'
+export const PKG_DIR = 'pkg'
+
+export function buildPackagerArgs(plan: EncodePlan, standards: Standard[]): string[] {
+  const args: string[] = []
+
+  for (const rendition of plan.renditions) {
+    const dir = renditionDir(rendition.label)
+    args.push(
+      descriptor({
+        in: `${ENC_DIR}/${encodedVideoFile(rendition.label)}`,
+        stream: 'video',
+        init_segment: `${PKG_DIR}/${dir}/${INIT_SEGMENT}`,
+        segment_template: `${PKG_DIR}/${dir}/${SEGMENT_TEMPLATE}`,
+        playlist_name: `${dir}/${MEDIA_PLAYLIST}`
+      })
+    )
+  }
+
+  for (const audio of plan.audio) {
+    const dir = audioDir(audio)
+    args.push(
+      descriptor({
+        in: `${ENC_DIR}/${encodedAudioFile(audio.sourceIndex)}`,
+        stream: 'audio',
+        init_segment: `${PKG_DIR}/${dir}/${INIT_SEGMENT}`,
+        segment_template: `${PKG_DIR}/${dir}/${SEGMENT_TEMPLATE}`,
+        playlist_name: `${dir}/${MEDIA_PLAYLIST}`,
+        hls_group_id: 'audio',
+        hls_name: audio.name,
+        language: audio.language
+      })
+    )
+  }
+
+  args.push('--segment_duration', plan.actualSegmentSeconds.toFixed(6))
+  // Marks DEFAULT=YES (HLS) / Role main (DASH) on the first track of this language
+  const defaultAudio = plan.audio.find((a) => a.isDefault) ?? plan.audio[0]
+  if (defaultAudio) args.push('--default_language', defaultAudio.language)
+  if (standards.includes('hls')) {
+    args.push('--hls_master_playlist_output', `${PKG_DIR}/${MASTER_PLAYLIST}`, '--hls_playlist_type', 'VOD')
+  }
+  if (standards.includes('dash')) {
+    args.push('--mpd_output', `${PKG_DIR}/${DASH_MANIFEST}`, '--generate_static_live_mpd')
+  }
+
+  return args
+}
+
+// Stream descriptors are "key=value" pairs separated by commas, with no escaping
+function descriptor(fields: Record<string, string>): string {
+  return Object.entries(fields)
+    .map(([key, value]) => `${key}=${value.replace(/[,=]/g, ' ')}`)
+    .join(',')
+}
+
+export async function runPackager(
+  binaries: Binaries,
+  args: string[],
+  workDir: string,
+  expectedSegments: number,
+  hooks: { onProgress?: (percent: number) => void; onLog?: (line: string) => void; signal?: AbortSignal }
+): Promise<void> {
+  // Shaka reports nothing usable on stdout: progress is inferred from segments written so far
+  const pkgDir = join(workDir, PKG_DIR)
+  const poll = setInterval(() => {
+    void countSegments(pkgDir).then((count) => hooks.onProgress?.(Math.min(99, (count / expectedSegments) * 100)))
+  }, 500)
+
+  try {
+    await run(binaries.packager, args, { cwd: workDir, signal: hooks.signal, onStderrLine: hooks.onLog })
+  } finally {
+    clearInterval(poll)
+  }
+}
+
+async function countSegments(dir: string): Promise<number> {
+  try {
+    const entries = await readdir(dir, { recursive: true })
+    return entries.filter((name) => name.endsWith('.m4s')).length
+  } catch {
+    return 0
+  }
+}

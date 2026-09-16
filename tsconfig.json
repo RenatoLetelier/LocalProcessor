@@ -24,6 +24,9 @@
       ],
       "@server/*": [
         "src/server/*"
+      ],
+      "@pipeline/*": [
+        "src/pipeline/*"
       ]
     }
   },
@@ -33,6 +36,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/server/**/*",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "src/pipeline/**/*",
+    "scripts/**/*"
   ]
 }

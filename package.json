@@ -13,7 +13,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json",
     "postinstall": "install-electron",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "fetch-bins": "tsx scripts/fetch-bins.ts",
+    "process": "tsx scripts/process.ts",
+    "make-sample": "tsx scripts/make-sample.ts"
   },
   "dependencies": {
     "@electron-toolkit/utils": "4.0.0",
@@ -29,6 +32,7 @@
     "electron-vite": "5.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "tsx": "4.23.13",
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vitest": "5.0.1"

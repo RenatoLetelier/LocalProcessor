@@ -1,0 +1,119 @@
+import { describe, expect, it } from 'vitest'
+import { parseFraction, parseProbeOutput, parseTimecode, type FfprobeOutput } from '../probe'
+
+// Trimmed ffprobe -show_format -show_streams output of a typical MKV rip
+const mkv: FfprobeOutput = {
+  streams: [
+    { index: 0, codec_type: 'video', codec_name: 'mjpeg', width: 600, height: 900, disposition: { attached_pic: 1 } },
+    {
+      index: 1,
+      codec_type: 'video',
+      codec_name: 'h264',
+      width: 720,
+      height: 576,
+      sample_aspect_ratio: '64:45',
+      r_frame_rate: '25/1',
+      avg_frame_rate: '25/1',
+      pix_fmt: 'yuv420p',
+      tags: { BPS: '4500000' }
+    },
+    {
+      index: 2,
+      codec_type: 'audio',
+      codec_name: 'aac',
+      channels: 2,
+      channel_layout: 'stereo',
+      sample_rate: '48000',
+      bit_rate: '128000',
+      disposition: { default: 1 },
+      tags: { language: 'spa', title: 'Latino' }
+    },
+    {
+      index: 3,
+      codec_type: 'audio',
+      codec_name: 'dts',
+      channels: 6,
+      channel_layout: '5.1(side)',
+      sample_rate: '48000',
+      tags: { language: 'eng', 'BPS-eng': '1536000' }
+    },
+    { index: 4, codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', tags: { language: 'spa' }, disposition: { forced: 1 } },
+    { index: 5, codec_type: 'subtitle', codec_name: 'subrip', tags: { language: 'und' } }
+  ],
+  format: { duration: '5400.123', size: '4000000000', bit_rate: '5925000' }
+}
+
+describe('parseProbeOutput', () => {
+  const info = parseProbeOutput(mkv, 'C:/in/movie.mkv')
+
+  it('skips cover art and keeps the real video stream', () => {
+    expect(info.video.index).toBe(1)
+    expect(info.video.codec).toBe('h264')
+  })
+
+  it('derives square-pixel display dimensions from the sample aspect ratio', () => {
+    expect(info.video.width).toBe(720)
+    expect(info.video.displayWidth).toBe(1024)
+    expect(info.video.displayHeight).toBe(576)
+  })
+
+  it('reads bitrate from mkvmerge statistics tags', () => {
+    expect(info.video.bitrate).toBe(4500000)
+    expect(info.video.bitrateEstimated).toBe(false)
+    expect(info.audio[1]?.bitrate).toBe(1536000)
+  })
+
+  it('keeps frame rate as an exact fraction', () => {
+    expect(info.video.fps).toEqual({ num: 25, den: 1 })
+    expect(parseFraction('24000/1001')).toEqual({ num: 24000, den: 1001 })
+  })
+
+  it('lists every audio track with language, title and default flag', () => {
+    expect(info.audio).toHaveLength(2)
+    expect(info.audio[0]).toMatchObject({ index: 2, codec: 'aac', channels: 2, language: 'spa', title: 'Latino', isDefault: true })
+    expect(info.audio[1]).toMatchObject({ index: 3, codec: 'dts', channels: 6, language: 'eng', title: null, isDefault: false })
+  })
+
+  it('flags image subtitles and forced tracks, normalising "und" to null', () => {
+    expect(info.subtitles[0]).toMatchObject({ index: 4, codec: 'hdmv_pgs_subtitle', isImage: true, isForced: true, language: 'spa' })
+    expect(info.subtitles[1]).toMatchObject({ index: 5, codec: 'subrip', isImage: false, isForced: false, language: null })
+  })
+
+  it('takes duration and size from the container when the video stream has none', () => {
+    expect(info.durationSeconds).toBeCloseTo(5400.123)
+    expect(info.sizeBytes).toBe(4000000000)
+    expect(info.containerBitrate).toBe(5925000)
+  })
+
+  it('prefers the video stream duration over the container duration', () => {
+    const withTag = structuredClone(mkv)
+    withTag.streams![1]!.tags = { ...withTag.streams![1]!.tags, DURATION: '01:29:59.500000000' }
+    expect(parseProbeOutput(withTag, 'x.mkv').durationSeconds).toBeCloseTo(5399.5)
+
+    const withField = structuredClone(mkv)
+    withField.streams![1]!.duration = '5398.25'
+    expect(parseProbeOutput(withField, 'x.mkv').durationSeconds).toBeCloseTo(5398.25)
+    expect(parseTimecode('00:00:20.020000000')).toBeCloseTo(20.02)
+    expect(parseTimecode('garbage')).toBeNull()
+  })
+
+  it('estimates the video bitrate from the container when no stream value exists', () => {
+    const noBps = structuredClone(mkv)
+    delete noBps.streams![1]!.tags
+    const estimated = parseProbeOutput(noBps, 'x.mkv')
+    expect(estimated.video.bitrateEstimated).toBe(true)
+    expect(estimated.video.bitrate).toBe(5925000 - 128000 - 1536000)
+  })
+
+  it('prefers avg_frame_rate when r_frame_rate is an absurd VFR timebase', () => {
+    const vfr = structuredClone(mkv)
+    vfr.streams![1]!.r_frame_rate = '1000/1'
+    vfr.streams![1]!.avg_frame_rate = '24000/1001'
+    expect(parseProbeOutput(vfr, 'x.mkv').video.fps).toEqual({ num: 24000, den: 1001 })
+  })
+
+  it('rejects files without a video stream or duration', () => {
+    expect(() => parseProbeOutput({ streams: [mkv.streams![2]!], format: mkv.format }, 'x')).toThrow(/pista de video/)
+    expect(() => parseProbeOutput({ streams: [mkv.streams![1]!], format: {} }, 'x')).toThrow(/duración/)
+  })
+})
