@@ -6,6 +6,7 @@ import { ConfirmDialog, EmptyState, StatusBadge, type ConfirmOptions } from '@/c
 import { api } from '@/lib/api'
 import { JOB_STATUS_LABEL, JOB_TIPO_LABEL, formatBitrate, formatBytes, formatDate, formatDuration } from '@/lib/format'
 import { useAppState } from '@/state/AppState'
+import { ReprocessDialog } from '@/sections/ReprocessDialog'
 
 export function Library({ selectedId, onSelect }: { selectedId: string | null; onSelect: (id: string | null) => void }) {
   const { titles } = useAppState()
@@ -68,6 +69,7 @@ function TitleView({ title, onBack }: { title: Title; onBack: () => void }) {
   const [files, setFiles] = useState<TitleFilesResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null)
+  const [reprocessing, setReprocessing] = useState(false)
 
   // Reloaded whenever the title row changes (status flips arrive over the WebSocket)
   useEffect(() => {
@@ -113,7 +115,12 @@ function TitleView({ title, onBack }: { title: Title; onBack: () => void }) {
           <button type="button" className="btn" disabled={!files?.exists} onClick={() => void bridge.openFolder(title.output_folder)}>
             Abrir carpeta
           </button>
-          <button type="button" className="btn" disabled title="Disponible en la fase 9">
+          <button
+            type="button"
+            className="btn"
+            disabled={!detail || (title.status !== 'done' && title.status !== 'error')}
+            onClick={() => setReprocessing(true)}
+          >
             Reprocesar
           </button>
           <button type="button" className="btn btn--danger-outline" onClick={askDelete}>
@@ -290,6 +297,9 @@ function TitleView({ title, onBack }: { title: Title; onBack: () => void }) {
       )}
 
       {confirm && <ConfirmDialog options={confirm} onClose={() => setConfirm(null)} />}
+      {reprocessing && detail && (
+        <ReprocessDialog title={title} detail={detail} onClose={() => setReprocessing(false)} onQueued={() => setReprocessing(false)} />
+      )}
     </div>
   )
 }

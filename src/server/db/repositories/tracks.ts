@@ -6,6 +6,7 @@ export interface NewAudioTrack {
   id?: string
   title_id: string
   source_index: number
+  source_path?: string | null
   language?: string | null
   title?: string | null
   codec_origen: string
@@ -18,6 +19,7 @@ export interface NewSubtitleTrack {
   id?: string
   title_id: string
   source_index: number
+  source_path?: string | null
   language?: string | null
   title?: string | null
   formato_origen: string
@@ -50,8 +52,8 @@ export interface SubtitleTracksRepository {
 
 export function createAudioTracksRepository(db: DatabaseSync): AudioTracksRepository {
   const insert = db.prepare(`
-    INSERT INTO audio_tracks (id, title_id, source_index, language, title, codec_origen, codec_salida, channels, status)
-    VALUES (@id, @title_id, @source_index, @language, @title, @codec_origen, @codec_salida, @channels, @status)
+    INSERT INTO audio_tracks (id, title_id, source_index, source_path, language, title, codec_origen, codec_salida, channels, status)
+    VALUES (@id, @title_id, @source_index, @source_path, @language, @title, @codec_origen, @codec_salida, @channels, @status)
   `)
   const selectById = db.prepare('SELECT * FROM audio_tracks WHERE id = ?')
   const selectByTitle = db.prepare('SELECT * FROM audio_tracks WHERE title_id = ? ORDER BY source_index')
@@ -66,6 +68,7 @@ export function createAudioTracksRepository(db: DatabaseSync): AudioTracksReposi
         id,
         title_id: input.title_id,
         source_index: input.source_index,
+        source_path: input.source_path ?? null,
         language: input.language ?? null,
         title: input.title ?? null,
         codec_origen: input.codec_origen,
@@ -87,8 +90,8 @@ export function createAudioTracksRepository(db: DatabaseSync): AudioTracksReposi
 
 export function createSubtitleTracksRepository(db: DatabaseSync): SubtitleTracksRepository {
   const insert = db.prepare(`
-    INSERT INTO subtitle_tracks (id, title_id, source_index, language, title, formato_origen, formato_salida, requiere_ocr, status)
-    VALUES (@id, @title_id, @source_index, @language, @title, @formato_origen, @formato_salida, @requiere_ocr, @status)
+    INSERT INTO subtitle_tracks (id, title_id, source_index, source_path, language, title, formato_origen, formato_salida, requiere_ocr, status)
+    VALUES (@id, @title_id, @source_index, @source_path, @language, @title, @formato_origen, @formato_salida, @requiere_ocr, @status)
   `)
   const selectById = db.prepare('SELECT * FROM subtitle_tracks WHERE id = ?')
   const selectByTitle = db.prepare('SELECT * FROM subtitle_tracks WHERE title_id = ? ORDER BY source_index')
@@ -109,6 +112,7 @@ export function createSubtitleTracksRepository(db: DatabaseSync): SubtitleTracks
         id,
         title_id: input.title_id,
         source_index: input.source_index,
+        source_path: input.source_path ?? null,
         language: input.language ?? null,
         title: input.title ?? null,
         formato_origen: input.formato_origen,

@@ -1,9 +1,10 @@
 import type { Rung } from '@shared/config'
 import { languageDisplayName, toBcp47 } from './lang'
-import { toEven } from './probe'
+import { toEven, type TrackFileInfo } from './probe'
 import type {
   AudioPlan,
   EncodePlan,
+  ExternalTrack,
   Fraction,
   PlanOptions,
   RenditionPlan,
@@ -11,7 +12,8 @@ import type {
   SourceAudio,
   SourceInfo,
   SourceSubtitle,
-  SubtitlePlan
+  SubtitlePlan,
+  TrackInput
 } from './types'
 
 // Audio codecs browsers and HLS/DASH accept as-is inside fMP4
@@ -71,13 +73,15 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
 
   // Every enabled rung would upscale: serve the source at its own size rather than reject it
   const enabled = options.qualities.filter((label) => label in options.rungs)
-  if (renditions.length === 0 && enabled.length > 0) {
+  if (renditions.length === 0 && enabled.length > 0 && options.allowNativeFallback !== false) {
     renditions.push(nativeRendition(source, options, enabled, gop))
   }
 
-  const audio = source.audio.map(planAudio)
+  const wanted = (indexes: number[] | undefined, index: number): boolean => indexes === undefined || indexes.includes(index)
+  const audio = source.audio.filter((track) => wanted(options.audioIndexes, track.index)).map((track) => planAudio(track))
   const subtitles: SubtitlePlan[] = []
   for (const subtitle of source.subtitles) {
+    if (!wanted(options.subtitleIndexes, subtitle.index)) continue
     const planned = planSubtitle(subtitle)
     if ('reason' in planned) skipped.push(planned)
     else subtitles.push(planned)
@@ -95,8 +99,8 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
 }
 
 // Image subtitles (PGS, VobSub, DVB) would need OCR: they are reported, never silently dropped
-export function planSubtitle(subtitle: SourceSubtitle): SubtitlePlan | SkippedItem {
-  const id = String(subtitle.index)
+export function planSubtitle(subtitle: SourceSubtitle, input?: TrackInput, sourceIndex = subtitle.index): SubtitlePlan | SkippedItem {
+  const id = String(sourceIndex)
   if (subtitle.isImage) {
     return { kind: 'subtitle', id, reason: `subtítulo de imagen (${subtitle.codec}): requiere OCR, no incluido` }
   }
@@ -105,9 +109,12 @@ export function planSubtitle(subtitle: SourceSubtitle): SubtitlePlan | SkippedIt
   }
   const language = toBcp47(subtitle.language)
   return {
-    sourceIndex: subtitle.index,
+    sourceIndex,
+    input: input ?? { streamIndex: subtitle.index },
+    sourceCodec: subtitle.codec,
     language,
     name: subtitle.title ?? languageDisplayName(language),
+    title: subtitle.title,
     forced: subtitle.isForced,
     isDefault: subtitle.isDefault
   }
@@ -129,20 +136,23 @@ function nativeRendition(source: SourceInfo, options: PlanOptions, enabled: stri
   }
 }
 
-export function planAudio(track: SourceAudio): AudioPlan {
+export function planAudio(track: SourceAudio, input?: TrackInput, sourceIndex = track.index): AudioPlan {
   const language = toBcp47(track.language)
   const name = track.title ?? languageDisplayName(language)
   const copy = STREAMABLE_AUDIO_CODECS.has(track.codec)
   const channels = copy ? track.channels : Math.min(track.channels, MAX_AAC_CHANNELS)
 
   return {
-    sourceIndex: track.index,
+    sourceIndex,
+    input: input ?? { streamIndex: track.index },
     action: copy ? 'copy' : 'transcode',
+    sourceCodec: track.codec,
     outputCodec: copy ? track.codec : TRANSCODE_AUDIO_CODEC,
     channels,
     bitrateKbps: copy ? null : aacBitrateKbps(channels),
     language,
     name,
+    title: track.title,
     isDefault: track.isDefault
   }
 }
@@ -150,4 +160,35 @@ export function planAudio(track: SourceAudio): AudioPlan {
 // 64 kbps per channel, bounded: 128k stereo, 384k 5.1, 512k 7.1
 export function aacBitrateKbps(channels: number): number {
   return Math.min(512, Math.max(128, 64 * channels))
+}
+
+// An external file contributes its first stream of the requested kind; language and
+// name given by the user win over whatever the file declares.
+export function planExternalTrack(track: ExternalTrack, info: TrackFileInfo | null): AudioPlan | SubtitlePlan | SkippedItem {
+  const id = String(track.sourceIndex)
+  const input: TrackInput = { path: track.path, streamIndex: 0 }
+
+  if (track.kind === 'audio') {
+    const stream = info?.audio[0]
+    if (!stream) return { kind: 'audio', id, reason: `el archivo no contiene audio: ${track.path}` }
+    return planAudio(
+      { ...stream, language: track.language ?? stream.language, title: track.name ?? stream.title, isDefault: false },
+      { ...input, streamIndex: stream.index },
+      track.sourceIndex
+    )
+  }
+
+  const stream = info?.subtitles[0]
+  if (!stream) return { kind: 'subtitle', id, reason: `el archivo no contiene subtítulos: ${track.path}` }
+  return planSubtitle(
+    {
+      ...stream,
+      language: track.language ?? stream.language,
+      title: track.name ?? stream.title,
+      isForced: track.forced ?? stream.isForced,
+      isDefault: false
+    },
+    { ...input, streamIndex: stream.index },
+    track.sourceIndex
+  )
 }

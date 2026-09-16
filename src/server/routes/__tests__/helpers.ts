@@ -2,12 +2,13 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { FastifyInstance } from 'fastify'
-import type { Binaries, PipelineHooks, PipelineInput, PipelineResult, SourceInfo } from '@pipeline/types'
-import { planEncode } from '@pipeline/plan'
+import type { Binaries, IncrementalInput, PipelineHooks, PipelineInput, PipelineResult, SourceInfo } from '@pipeline/types'
+import { planEncode, planExternalTrack } from '@pipeline/plan'
+import type { TrackFileInfo } from '@pipeline/probe'
 import { createServer } from '../..'
 import { openDatabase, type AppDatabase } from '../../db'
 import { ServerEvents } from '../../jobs/events'
-import { JobRunner, type PipelineFn } from '../../jobs/runner'
+import { JobRunner, type IncrementalFn, type PipelineFn } from '../../jobs/runner'
 import type { Prober } from '../../jobs/enqueue'
 
 export const FAKE_BINARIES: Binaries = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', packager: 'packager' }
@@ -42,6 +43,12 @@ export const fakeSource = (path: string, over: Partial<SourceInfo['video']> = {}
 
 export const fakeProbe: Prober = async (_binaries, path) => fakeSource(path)
 
+// External files: .srt → one subrip stream, anything else → one stereo AAC stream
+export const fakeProbeTracks = async (_binaries: Binaries, path: string): Promise<TrackFileInfo> =>
+  path.endsWith('.srt')
+    ? { path, audio: [], subtitles: [{ index: 0, codec: 'subrip', language: null, title: null, isForced: false, isDefault: false, isImage: false }] }
+    : { path, audio: [{ index: 0, codec: 'aac', channels: 2, channelLayout: 'stereo', sampleRate: 48000, bitrate: 128000, language: null, title: null, isDefault: false }], subtitles: [] }
+
 export interface FakePipelineOptions {
   // Number of progress ticks and the pause between them (lets tests cancel mid-run)
   ticks?: number
@@ -55,6 +62,12 @@ export function fakePipeline(options: FakePipelineOptions = {}): PipelineFn {
   return async (_binaries: Binaries, input: PipelineInput, hooks: PipelineHooks = {}): Promise<PipelineResult> => {
     const source = fakeSource(input.sourcePath)
     const plan = planEncode(source, input.plan)
+    for (const track of input.externalTracks ?? []) {
+      const planned = planExternalTrack(track, await fakeProbeTracks(_binaries, track.path))
+      if ('reason' in planned) plan.skipped.push(planned)
+      else if ('action' in planned) plan.audio.push(planned)
+      else plan.subtitles.push(planned)
+    }
     hooks.onProgress?.({ step: 'probe', percent: 0 })
     for (let i = 1; i <= ticks; i++) {
       if (hooks.signal?.aborted) throw new Error('abortado')
@@ -93,6 +106,50 @@ export function fakePipeline(options: FakePipelineOptions = {}): PipelineFn {
   }
 }
 
+// Stand-in for addToTitle: plans the requested additions and returns them as done
+export function fakeIncremental(options: FakePipelineOptions = {}): IncrementalFn {
+  const { ticks = 2, tickMs = 5, fail } = options
+  return async (_binaries: Binaries, input: IncrementalInput, hooks: PipelineHooks = {}): Promise<PipelineResult> => {
+    const source = fakeSource(input.sourcePath)
+    const plan = planEncode(source, {
+      rungs: input.rungs,
+      qualities: input.qualities,
+      segmentDurationSeconds: 6,
+      audioIndexes: input.audioIndexes,
+      subtitleIndexes: input.subtitleIndexes,
+      allowNativeFallback: false
+    })
+    for (const track of input.externalTracks) {
+      const planned = planExternalTrack(track, await fakeProbeTracks(_binaries, track.path))
+      if ('reason' in planned) plan.skipped.push(planned)
+      else if ('action' in planned) plan.audio.push(planned)
+      else plan.subtitles.push(planned)
+    }
+    for (let i = 1; i <= ticks; i++) {
+      if (hooks.signal?.aborted) throw new Error('abortado')
+      await sleep(tickMs)
+      hooks.onProgress?.({ step: 'encode', percent: 3 + (87 * i) / ticks })
+    }
+    if (fail) throw new Error(fail)
+    const outputFolder = join(input.outputRoot, input.titleId)
+    const metadata: PipelineResult['metadata'] = {
+      schemaVersion: 1,
+      titleId: input.titleId,
+      name: input.name,
+      durationSeconds: source.durationSeconds,
+      standards: ['hls'],
+      manifests: { hls: 'master.m3u8' },
+      segmentDurationSeconds: 6,
+      renditions: plan.renditions.map((r) => ({ label: r.label, width: r.width, height: r.height, bitrate: 1, maxBitrate: 1, codec: 'h264', path: `video/${r.label}` })),
+      audioTracks: [],
+      subtitleTracks: [],
+      updatedAt: new Date().toISOString()
+    }
+    hooks.onProgress?.({ step: 'publish', percent: 100 })
+    return { titleId: input.titleId, outputFolder, source, plan, metadata }
+  }
+}
+
 export interface TestServer {
   app: FastifyInstance
   db: AppDatabase
@@ -101,7 +158,9 @@ export interface TestServer {
   allowedOrigins: string[]
 }
 
-export async function createTestServer(options: { pipeline?: PipelineFn; outputFolder?: string; concurrency?: number } = {}): Promise<TestServer> {
+export async function createTestServer(
+  options: { pipeline?: PipelineFn; incremental?: IncrementalFn; outputFolder?: string; concurrency?: number } = {}
+): Promise<TestServer> {
   const db = openDatabase(':memory:')
   const events = new ServerEvents()
   const runner = new JobRunner({
@@ -110,6 +169,7 @@ export async function createTestServer(options: { pipeline?: PipelineFn; outputF
     events,
     binaries: FAKE_BINARIES,
     pipeline: options.pipeline ?? fakePipeline(),
+    incremental: options.incremental ?? fakeIncremental(),
     concurrency: options.concurrency
   })
   if (options.outputFolder) db.repos.settings.updateConfig({ outputFolder: options.outputFolder })
@@ -119,7 +179,7 @@ export async function createTestServer(options: { pipeline?: PipelineFn; outputF
     host: '127.0.0.1',
     port: 0,
     version: 'test',
-    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, probe: fakeProbe, checkDiskSpace: false },
+    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, probe: fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
     allowedOrigins,
     logLevel: 'silent'
   })

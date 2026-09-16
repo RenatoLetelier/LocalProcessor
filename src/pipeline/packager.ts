@@ -23,7 +23,12 @@ import type { Binaries, EncodePlan } from './types'
 export const ENC_DIR = 'enc'
 export const PKG_DIR = 'pkg'
 
-export function buildPackagerArgs(plan: EncodePlan, standards: Standard[]): string[] {
+export interface PackagerOptions {
+  // Incremental runs add streams to a published title whose defaults are already set
+  markDefaults?: boolean
+}
+
+export function buildPackagerArgs(plan: EncodePlan, standards: Standard[], options: PackagerOptions = {}): string[] {
   const args: string[] = []
 
   for (const rendition of plan.renditions) {
@@ -73,13 +78,15 @@ export function buildPackagerArgs(plan: EncodePlan, standards: Standard[]): stri
   }
 
   args.push('--segment_duration', plan.actualSegmentSeconds.toFixed(6))
-  // Marks DEFAULT=YES (HLS) / Role main (DASH) on the first track of this language
-  const defaultAudio = plan.audio.find((a) => a.isDefault) ?? plan.audio[0]
-  if (defaultAudio) args.push('--default_language', defaultAudio.language)
-  // Subtitles stay off unless the source flags one as default: --default_language
-  // would otherwise also mark the same-language subtitle DEFAULT=YES ("zxx" = no language)
-  const defaultSubtitle = plan.subtitles.find((s) => s.isDefault && !s.forced)
-  if (plan.subtitles.length > 0) args.push('--default_text_language', defaultSubtitle?.language ?? 'zxx')
+  if (options.markDefaults !== false) {
+    // Marks DEFAULT=YES (HLS) / Role main (DASH) on the first track of this language
+    const defaultAudio = plan.audio.find((a) => a.isDefault) ?? plan.audio[0]
+    if (defaultAudio) args.push('--default_language', defaultAudio.language)
+    // Subtitles stay off unless the source flags one as default: --default_language
+    // would otherwise also mark the same-language subtitle DEFAULT=YES ("zxx" = no language)
+    const defaultSubtitle = plan.subtitles.find((s) => s.isDefault && !s.forced)
+    if (plan.subtitles.length > 0) args.push('--default_text_language', defaultSubtitle?.language ?? 'zxx')
+  }
   if (standards.includes('hls')) {
     args.push('--hls_master_playlist_output', `${PKG_DIR}/${MASTER_PLAYLIST}`, '--hls_playlist_type', 'VOD')
   }

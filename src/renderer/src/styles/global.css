@@ -826,3 +826,58 @@ code {
 .settings .card + .card {
   margin-top: 0;
 }
+
+/* Reprocess dialog */
+
+.modal--wide {
+  width: min(640px, calc(100vw - 40px));
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--muted-soft);
+  margin-bottom: 14px;
+}
+
+.segmented__item {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--panel-fg-muted);
+  cursor: pointer;
+}
+
+.segmented__item--active {
+  background: var(--card-bg);
+  color: var(--panel-fg);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.check--disabled {
+  color: var(--panel-fg-muted);
+  cursor: not-allowed;
+}
+
+.check--inline {
+  display: inline-flex;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.input--xs {
+  width: 90px;
+}
+
+.actions--tight {
+  margin-top: 0;
+}

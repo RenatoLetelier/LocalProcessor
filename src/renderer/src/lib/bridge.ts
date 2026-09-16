@@ -6,6 +6,7 @@ import { DEFAULT_API_HOST, DEFAULT_API_PORT } from '@shared/constants'
 const browserFallback: AppBridge = {
   getApiBaseUrl: async () => `http://${DEFAULT_API_HOST}:${DEFAULT_API_PORT}`,
   pickVideoFiles: async () => [],
+  pickTrackFiles: async () => [],
   pickFolder: async () => null,
   openFolder: async () => undefined,
   pathForFile: (file) => file.name

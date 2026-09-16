@@ -26,7 +26,7 @@ describe('schema', () => {
     const { db } = openDatabase(':memory:')
     expect(runMigrations(db)).toEqual([])
     const versions = db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }])
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }])
   })
 
   it('deletes renditions, tracks and jobs together with their title', () => {

@@ -172,10 +172,7 @@ describe('DELETE /titles/:id', () => {
     expect((await server.app.inject({ method: 'GET', url: `/titles/${title.id}` })).statusCode).toBe(404)
   })
 
-  it('returns 404 for unknown titles and 501 for reprocess until fase 9', async () => {
+  it('returns 404 for unknown titles', async () => {
     expect((await server.app.inject({ method: 'DELETE', url: '/titles/nope' })).statusCode).toBe(404)
-    const { title } = (await post({ sourcePath: join(root, 'movie.mkv') })).json()
-    const res = await server.app.inject({ method: 'POST', url: `/titles/${title.id}/reprocess`, payload: {} })
-    expect(res.statusCode).toBe(501)
   })
 })

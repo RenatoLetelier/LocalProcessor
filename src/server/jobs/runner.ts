@@ -1,13 +1,22 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Job } from '@shared/model'
-import { processTitle } from '@pipeline/index'
-import type { Binaries, ProgressEvent } from '@pipeline/types'
+import { addToTitle, processTitle } from '@pipeline/index'
+import type { Binaries, ExternalTrack, PipelineHooks, PipelineResult, ProgressEvent } from '@pipeline/types'
 import type { Repositories } from '../db/repositories'
-import { parseJobConfig } from './config'
+import { parseJobConfig, type JobConfig } from './config'
 import type { ServerEvents } from './events'
-import { recordResult } from './record'
+import { recordIncremental, recordResult } from './record'
+import { sourceHash } from './source-hash'
 
 export type PipelineFn = typeof processTitle
+export type IncrementalFn = typeof addToTitle
+
+// Extra fields incremental jobs carry in config_json
+export interface ReprocessConfig extends JobConfig {
+  audioIndexes?: number[]
+  subtitleIndexes?: number[]
+  externalTracks?: ExternalTrack[]
+}
 
 export interface RunnerLogger {
   info(msg: string): void
@@ -22,6 +31,7 @@ export interface RunnerDeps {
   events: ServerEvents
   binaries: Binaries
   pipeline?: PipelineFn
+  incremental?: IncrementalFn
   concurrency?: number
   log?: RunnerLogger
 }
@@ -41,12 +51,14 @@ interface RunningJob {
 export class JobRunner {
   private readonly running = new Map<string, RunningJob>()
   private readonly pipeline: PipelineFn
+  private readonly incremental: IncrementalFn
   private readonly concurrency: number
   private readonly log: RunnerLogger
   private stopping = false
 
   constructor(private readonly deps: RunnerDeps) {
     this.pipeline = deps.pipeline ?? processTitle
+    this.incremental = deps.incremental ?? addToTitle
     this.concurrency = deps.concurrency ?? 1
     this.log = deps.log ?? { info() {}, warn() {}, error() {}, debug() {} }
   }
@@ -153,40 +165,64 @@ export class JobRunner {
     events.emit({ type: 'title.updated', title: repos.titles.update(title.id, { status: 'processing', error: null })! })
     this.log.info(`job ${job.id} (${job.tipo}) iniciado para "${title.name}"`)
 
-    const config = parseJobConfig(job.config_json)
+    const config = parseJobConfig(job.config_json) as ReprocessConfig
     let lastPersisted = -1
     let lastStep: string | null = null
+    const hooks: PipelineHooks = {
+      signal,
+      onLog: (line) => {
+        this.log.debug(`[${job.id}] ${line}`)
+        events.emit({ type: 'job.log', jobId: job.id, line })
+      },
+      onProgress: (event: ProgressEvent) => {
+        // A dying process can still report once after abort/stop; the row is no longer ours
+        if (signal.aborted || this.stopping) return
+        const stepChanged = event.step !== lastStep
+        if (!stepChanged && event.percent - lastPersisted < 0.5) return
+        lastPersisted = event.percent
+        lastStep = event.step
+        const updated = repos.jobs.update(job.id, { progress: event.percent, current_step: event.step })
+        if (updated) events.emit({ type: 'job.progress', job: updated })
+      }
+    }
+    const base = { titleId: title.id, name: title.name, sourcePath: title.source_path, outputRoot: config.outputFolder }
 
     try {
-      const result = await this.pipeline(
-        binaries,
-        {
-          titleId: title.id,
-          name: title.name,
-          sourcePath: title.source_path,
-          outputRoot: config.outputFolder,
-          standards: config.standards,
-          plan: { rungs: config.rungs, qualities: config.qualities, segmentDurationSeconds: config.segmentDurationSeconds }
-        },
-        {
-          signal,
-          onLog: (line) => {
-            this.log.debug(`[${job.id}] ${line}`)
-            events.emit({ type: 'job.log', jobId: job.id, line })
+      let result: PipelineResult
+      if (job.tipo === 'inicial' || job.tipo === 'reprocesar_completo') {
+        result = await this.pipeline(
+          binaries,
+          {
+            ...base,
+            standards: config.standards,
+            plan: { rungs: config.rungs, qualities: config.qualities, segmentDurationSeconds: config.segmentDurationSeconds },
+            externalTracks: config.externalTracks,
+            replaceExisting: job.tipo === 'reprocesar_completo'
           },
-          onProgress: (event: ProgressEvent) => {
-            // A dying process can still report once after abort/stop; the row is no longer ours
-            if (signal.aborted || this.stopping) return
-            const stepChanged = event.step !== lastStep
-            if (!stepChanged && event.percent - lastPersisted < 0.5) return
-            lastPersisted = event.percent
-            lastStep = event.step
-            const updated = repos.jobs.update(job.id, { progress: event.percent, current_step: event.step })
-            if (updated) events.emit({ type: 'job.progress', job: updated })
-          }
+          hooks
+        )
+        recordResult(repos, this.deps.db, result)
+        // A full reprocess is the one job allowed to adopt a replaced source file
+        if (job.tipo === 'reprocesar_completo') repos.titles.update(title.id, { source_hash: await sourceHash(title.source_path) })
+      } else {
+        // Mixing renditions of two different files would corrupt the title
+        if (title.source_hash && (await sourceHash(title.source_path)) !== title.source_hash) {
+          throw new Error('El archivo de origen cambió desde el procesado inicial; usa el reprocesado completo')
         }
-      )
-      recordResult(repos, this.deps.db, result)
+        result = await this.incremental(
+          binaries,
+          {
+            ...base,
+            rungs: config.rungs,
+            qualities: job.tipo === 'agregar_calidad' ? config.qualities : [],
+            audioIndexes: config.audioIndexes ?? [],
+            subtitleIndexes: config.subtitleIndexes ?? [],
+            externalTracks: config.externalTracks ?? []
+          },
+          hooks
+        )
+        recordIncremental(repos, this.deps.db, result)
+      }
       this.finish(job.id, 'done', null)
       this.log.info(`job ${job.id} completado → ${result.outputFolder}`)
     } catch (error) {
@@ -210,8 +246,15 @@ export class JobRunner {
     if (!job) return
     events.emit({ type: 'job.updated', job })
 
+    // A failed incremental job leaves the published title intact; a failed initial or
+    // full reprocess has nothing usable to show
+    const publishedIntact = job.tipo === 'agregar_calidad' || job.tipo === 'agregar_pista'
     const title =
-      status === 'done' ? repos.titles.get(job.title_id) : repos.titles.update(job.title_id, { status: 'error', error: message })
+      status === 'done'
+        ? repos.titles.get(job.title_id)
+        : publishedIntact && repos.renditions.listByTitle(job.title_id).some((r) => r.status === 'done')
+          ? repos.titles.update(job.title_id, { status: 'done', error: message })
+          : repos.titles.update(job.title_id, { status: 'error', error: message })
     if (title) events.emit({ type: 'title.updated', title })
   }
 }

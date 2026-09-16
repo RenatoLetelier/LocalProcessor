@@ -108,7 +108,9 @@ describe('planEncode', () => {
     )
     expect(plan.renditions.map((r) => r.label)).toEqual(['720p'])
     expect(plan.skipped.map((s) => s.kind)).toEqual(['rendition'])
-    expect(plan.subtitles).toEqual([{ sourceIndex: 3, language: 'es', name: 'Español', forced: false, isDefault: false }])
+    expect(plan.subtitles).toEqual([
+      { sourceIndex: 3, input: { streamIndex: 3 }, sourceCodec: 'subrip', language: 'es', name: 'Español', title: null, forced: false, isDefault: false }
+    ])
   })
 })
 
@@ -154,8 +156,11 @@ describe('planSubtitle', () => {
   it('plans text tracks as WebVTT keeping forced/default flags and the display name', () => {
     expect(planSubtitle(subtitle({ codec: 'ass', isForced: true, isDefault: true, title: 'Forzados' }))).toEqual({
       sourceIndex: 5,
+      input: { streamIndex: 5 },
+      sourceCodec: 'ass',
       language: 'es',
       name: 'Forzados',
+      title: 'Forzados',
       forced: true,
       isDefault: true
     })
@@ -179,12 +184,15 @@ describe('planAudio', () => {
   it('copies streamable codecs untouched', () => {
     expect(planAudio(audio({ codec: 'eac3', channels: 6, language: 'eng', isDefault: true }))).toEqual({
       sourceIndex: 1,
+      input: { streamIndex: 1 },
       action: 'copy',
+      sourceCodec: 'eac3',
       outputCodec: 'eac3',
       channels: 6,
       bitrateKbps: null,
       language: 'en',
       name: 'English',
+      title: null,
       isDefault: true
     })
   })

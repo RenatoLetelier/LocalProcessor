@@ -3,8 +3,9 @@ import type { AudioPlan, SubtitlePlan } from './types'
 // Layout of a published title folder (all paths relative to <output>/<titleId>/):
 //   master.m3u8, manifest.mpd, metadata.json
 //   video/<label>/init.mp4 + seg_00001.m4s… + playlist.m3u8
-//   audio/<sourceIndex>_<language>_<codec>/init.mp4 + seg_… + playlist.m3u8
-//   subs/<sourceIndex>_<language>/seg_00001.vtt… + playlist.m3u8 (same segments serve HLS and DASH)
+//   audio/<track>_<language>_<codec>/init.mp4 + seg_… + playlist.m3u8
+//   subs/<track>_<language>/seg_00001.vtt… + playlist.m3u8 (same segments serve HLS and DASH)
+// <track> is the source stream index, or e<n> for tracks added from external files.
 export const MASTER_PLAYLIST = 'master.m3u8'
 export const DASH_MANIFEST = 'manifest.mpd'
 export const METADATA_FILE = 'metadata.json'
@@ -17,13 +18,15 @@ export const MEDIA_PLAYLIST = 'playlist.m3u8'
 // Work-in-progress folders live next to the titles so the final rename stays on one volume
 export const WORK_DIR = '.tmp'
 
+export const trackKey = (sourceIndex: number): string => (sourceIndex < 0 ? `e${-sourceIndex}` : String(sourceIndex))
+
 export const renditionDir = (label: string): string => `video/${label}`
-export const audioTrackId = (audio: AudioPlan): string => `${audio.sourceIndex}_${audio.language}_${audio.outputCodec}`
+export const audioTrackId = (audio: AudioPlan): string => `${trackKey(audio.sourceIndex)}_${audio.language}_${audio.outputCodec}`
 export const audioDir = (audio: AudioPlan): string => `audio/${audioTrackId(audio)}`
 
-export const subtitleTrackId = (subtitle: SubtitlePlan): string => `${subtitle.sourceIndex}_${subtitle.language}`
+export const subtitleTrackId = (subtitle: SubtitlePlan): string => `${trackKey(subtitle.sourceIndex)}_${subtitle.language}`
 export const subtitleDir = (subtitle: SubtitlePlan): string => `subs/${subtitleTrackId(subtitle)}`
 
 export const encodedVideoFile = (label: string): string => `video_${label}.mp4`
-export const encodedAudioFile = (sourceIndex: number): string => `audio_${sourceIndex}.mp4`
-export const encodedSubtitleFile = (sourceIndex: number): string => `sub_${sourceIndex}.vtt`
+export const encodedAudioFile = (sourceIndex: number): string => `audio_${trackKey(sourceIndex)}.mp4`
+export const encodedSubtitleFile = (sourceIndex: number): string => `sub_${trackKey(sourceIndex)}.vtt`

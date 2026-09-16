@@ -50,3 +50,21 @@ export type ServerEvent =
   | { type: 'title.deleted'; titleId: string }
   | { type: 'job.log'; jobId: string; line: string }
   | { type: 'config.updated'; config: AppConfig }
+
+export interface ReprocessFile {
+  path: string
+  kind: 'audio' | 'subtitle'
+  language?: string
+  name?: string
+  forced?: boolean
+}
+
+export interface ReprocessRequest {
+  tipo: 'agregar_calidad' | 'agregar_pista' | 'reprocesar_completo'
+  qualities?: string[]
+  audio?: number[]
+  subtitles?: number[]
+  files?: ReprocessFile[]
+  standards?: ('hls' | 'dash')[]
+  segmentDurationSeconds?: number
+}

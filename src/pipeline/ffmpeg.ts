@@ -1,7 +1,17 @@
 import { join } from 'node:path'
 import { run } from './exec'
 import { encodedAudioFile, encodedSubtitleFile, encodedVideoFile } from './layout'
-import type { AudioPlan, Binaries, EncodePlan, RenditionPlan, SkippedItem, SourceInfo, SubtitlePlan, VideoEncoderOptions } from './types'
+import type {
+  AudioPlan,
+  Binaries,
+  EncodePlan,
+  RenditionPlan,
+  SkippedItem,
+  SourceInfo,
+  SubtitlePlan,
+  TrackInput,
+  VideoEncoderOptions
+} from './types'
 
 export const DEFAULT_VIDEO_ENCODER: Required<VideoEncoderOptions> = { preset: 'medium', crf: 20 }
 
@@ -11,7 +21,8 @@ export interface EncodeOutputs {
 }
 
 // One ffmpeg invocation decodes the source once and writes every rendition and
-// audio track as separate MP4 intermediates for the packager.
+// audio track as separate MP4 intermediates for the packager. External track
+// files are extra inputs of the same run.
 export function buildFfmpegArgs(
   source: SourceInfo,
   plan: EncodePlan,
@@ -19,7 +30,11 @@ export function buildFfmpegArgs(
   encoder: VideoEncoderOptions = {}
 ): { args: string[]; outputs: EncodeOutputs } {
   const opts = { ...DEFAULT_VIDEO_ENCODER, ...encoder }
-  const args = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:1', '-i', source.path]
+  const inputs = new InputList(source.path)
+  for (const audio of plan.audio) inputs.add(audio.input.path)
+
+  const args = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:1']
+  for (const path of inputs.paths) args.push('-i', path)
   const outputs: EncodeOutputs = { video: [], audio: [] }
 
   const videoInput = `0:${source.video.index}`
@@ -42,11 +57,29 @@ export function buildFfmpegArgs(
 
   for (const audio of plan.audio) {
     const file = join(encDir, encodedAudioFile(audio.sourceIndex))
-    args.push('-map', `0:${audio.sourceIndex}`, ...audioCodecArgs(audio), '-vn', '-sn', '-dn', '-map_metadata', '-1', '-f', 'mp4', file)
+    args.push('-map', inputs.map(audio.input), ...audioCodecArgs(audio), '-vn', '-sn', '-dn', '-map_metadata', '-1', '-f', 'mp4', file)
     outputs.audio.push({ sourceIndex: audio.sourceIndex, file })
   }
 
   return { args, outputs }
+}
+
+// Distinct input files of a run, in first-use order; the title source is always input 0
+class InputList {
+  readonly paths: string[]
+
+  constructor(primary: string) {
+    this.paths = [primary]
+  }
+
+  add(path: string | undefined): void {
+    if (path && !this.paths.includes(path)) this.paths.push(path)
+  }
+
+  map(input: TrackInput): string {
+    const index = input.path ? this.paths.indexOf(input.path) : 0
+    return `${index}:${input.streamIndex}`
+  }
 }
 
 // setsar=1 turns anamorphic sources into square pixels at the display size
@@ -110,8 +143,9 @@ export async function runFfmpeg(
 
 export function buildSubtitleArgs(source: SourceInfo, subtitle: SubtitlePlan, encDir: string): { args: string[]; file: string } {
   const file = join(encDir, encodedSubtitleFile(subtitle.sourceIndex))
+  const input = subtitle.input.path ?? source.path
   return {
-    args: ['-hide_banner', '-nostdin', '-y', '-loglevel', 'error', '-i', source.path, '-map', `0:${subtitle.sourceIndex}`, '-c:s', 'webvtt', '-f', 'webvtt', file],
+    args: ['-hide_banner', '-nostdin', '-y', '-loglevel', 'error', '-i', input, '-map', `0:${subtitle.input.streamIndex}`, '-c:s', 'webvtt', '-f', 'webvtt', file],
     file
   }
 }

@@ -1,6 +1,7 @@
 import type { Binaries } from '@pipeline/types'
 import type { Repositories } from './db/repositories'
 import type { Prober } from './jobs/enqueue'
+import type { ReprocessDeps } from './jobs/reprocess'
 import type { ServerEvents } from './jobs/events'
 import type { JobRunner } from './jobs/runner'
 
@@ -11,5 +12,6 @@ export interface ServerContext {
   runner: JobRunner
   binaries: Binaries
   probe?: Prober
+  probeTracks?: ReprocessDeps['probeTracks']
   checkDiskSpace?: boolean
 }

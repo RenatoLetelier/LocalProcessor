@@ -40,7 +40,9 @@ export interface Rendition {
 export interface AudioTrack {
   id: string
   title_id: string
+  // Stream index in the source file; negative for tracks added from external files
   source_index: number
+  source_path: string | null
   language: string | null
   title: string | null
   codec_origen: string
@@ -53,6 +55,7 @@ export interface SubtitleTrack {
   id: string
   title_id: string
   source_index: number
+  source_path: string | null
   language: string | null
   title: string | null
   formato_origen: string

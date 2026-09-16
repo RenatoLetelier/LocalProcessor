@@ -8,6 +8,7 @@ import type { ConfigOverrides } from '../jobs/config'
 import { enqueueTitle } from '../jobs/enqueue'
 import { saveUpload, uploadPath } from '../jobs/uploads'
 import { readFolderTree } from '../jobs/folder-tree'
+import { enqueueReprocess, type ReprocessRequest } from '../jobs/reprocess'
 
 interface CreateTitleBody {
   sourcePath?: unknown
@@ -106,11 +107,47 @@ export const titlesRoutes: FastifyPluginAsync<{ context: ServerContext }> = asyn
     return reply.code(204).send()
   })
 
-  app.post<{ Params: { id: string } }>('/titles/:id/reprocess', async (request) => {
-    if (!repos.titles.get(request.params.id)) throw notFound('Título no encontrado')
-    throw new HttpError(501, 'El reprocesado incremental se implementa en la fase 9')
-  })
+  // { tipo: 'agregar_calidad', qualities } | { tipo: 'agregar_pista', audio?, subtitles?, files? } |
+  // { tipo: 'reprocesar_completo', standards?, qualities?, segmentDurationSeconds? }
+  app.post<{ Params: { id: string }; Body: ReprocessRequest }>(
+    '/titles/:id/reprocess',
+    { schema: { body: reprocessSchema } },
+    async (request, reply) => {
+      const result = await enqueueReprocess(context, request.params.id, request.body)
+      runner.notify()
+      return reply.code(202).send(result)
+    }
+  )
 }
+
+const reprocessSchema = {
+  type: 'object',
+  required: ['tipo'],
+  additionalProperties: false,
+  properties: {
+    tipo: { type: 'string', enum: ['agregar_calidad', 'agregar_pista', 'reprocesar_completo'] },
+    qualities: { type: 'array', items: { type: 'string' } },
+    audio: { type: 'array', items: { type: 'integer' } },
+    subtitles: { type: 'array', items: { type: 'integer' } },
+    files: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['path', 'kind'],
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string' },
+          kind: { type: 'string', enum: ['audio', 'subtitle'] },
+          language: { type: 'string' },
+          name: { type: 'string' },
+          forced: { type: 'boolean' }
+        }
+      }
+    },
+    standards: { type: 'array', items: { type: 'string', enum: ['hls', 'dash'] } },
+    segmentDurationSeconds: { type: 'integer' }
+  }
+} as const
 
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined

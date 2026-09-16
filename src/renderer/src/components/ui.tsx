@@ -33,7 +33,19 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
   )
 }
 
-export function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+  wide = false
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  footer?: ReactNode
+  wide?: boolean
+}) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
@@ -44,7 +56,7 @@ export function Modal({ title, onClose, children, footer }: { title: string; onC
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div className={`modal${wide ? ' modal--wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <h2 id="modal-title" className="modal__title">{title}</h2>
         <div className="modal__body">{children}</div>
         {footer && <div className="modal__footer">{footer}</div>}

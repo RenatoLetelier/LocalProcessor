@@ -3,6 +3,8 @@ export interface AppBridge {
   getApiBaseUrl(): Promise<string>
   // Native dialogs; empty array / null when the user cancels
   pickVideoFiles(): Promise<string[]>
+  // Subtitle or audio files to attach to an existing title
+  pickTrackFiles(kind: 'audio' | 'subtitle'): Promise<string[]>
   pickFolder(defaultPath?: string): Promise<string | null>
   // Opens a title folder in the OS file manager
   openFolder(path: string): Promise<void>

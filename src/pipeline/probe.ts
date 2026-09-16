@@ -35,12 +35,32 @@ export interface FfprobeOutput {
 }
 
 export async function probeSource(binaries: Binaries, path: string, signal?: AbortSignal): Promise<SourceInfo> {
+  return parseProbeOutput(await runProbe(binaries, path, signal), path)
+}
+
+// Audio dubs and subtitle files have no video: only their tracks matter
+export interface TrackFileInfo {
+  path: string
+  audio: SourceAudio[]
+  subtitles: SourceSubtitle[]
+}
+
+export async function probeTrackFile(binaries: Binaries, path: string, signal?: AbortSignal): Promise<TrackFileInfo> {
+  const streams = (await runProbe(binaries, path, signal)).streams ?? []
+  return {
+    path,
+    audio: streams.filter((s) => s.codec_type === 'audio').map(parseAudio),
+    subtitles: streams.filter((s) => s.codec_type === 'subtitle').map(parseSubtitle)
+  }
+}
+
+async function runProbe(binaries: Binaries, path: string, signal?: AbortSignal): Promise<FfprobeOutput> {
   const json = await capture(
     binaries.ffprobe,
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path],
     { signal }
   )
-  return parseProbeOutput(JSON.parse(json) as FfprobeOutput, path)
+  return JSON.parse(json) as FfprobeOutput
 }
 
 export function parseProbeOutput(output: FfprobeOutput, path: string): SourceInfo {

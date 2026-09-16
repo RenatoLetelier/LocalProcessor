@@ -31,12 +31,12 @@ const plan: EncodePlan = {
   actualSegmentSeconds: 6.006,
   renditions: [{ label: '720p', width: 1280, height: 534, maxBitrateKbps: 3000, gopFrames: 144 }],
   audio: [
-    { sourceIndex: 1, action: 'copy', outputCodec: 'aac', channels: 2, bitrateKbps: null, language: 'es', name: 'Español', isDefault: false },
-    { sourceIndex: 2, action: 'transcode', outputCodec: 'aac', channels: 6, bitrateKbps: 384, language: 'en', name: 'Director, comments', isDefault: true }
+    { sourceIndex: 1, input: { streamIndex: 1 }, action: 'copy', sourceCodec: 'aac', outputCodec: 'aac', channels: 2, bitrateKbps: null, language: 'es', name: 'Español', title: null, isDefault: false },
+    { sourceIndex: 2, input: { streamIndex: 2 }, action: 'transcode', sourceCodec: 'dts', outputCodec: 'aac', channels: 6, bitrateKbps: 384, language: 'en', name: 'Director, comments', title: 'Director, comments', isDefault: true }
   ],
   subtitles: [
-    { sourceIndex: 3, language: 'es', name: 'Español', forced: false, isDefault: false },
-    { sourceIndex: 4, language: 'es', name: 'Forzados', forced: true, isDefault: false }
+    { sourceIndex: 3, input: { streamIndex: 3 }, sourceCodec: 'subrip', language: 'es', name: 'Español', title: null, forced: false, isDefault: false },
+    { sourceIndex: 4, input: { streamIndex: 4 }, sourceCodec: 'ass', language: 'es', name: 'Forzados', title: 'Forzados', forced: true, isDefault: false }
   ],
   skipped: []
 }
@@ -92,6 +92,24 @@ describe('buildFfmpegArgs', () => {
     ])
     expect(multiArgs.filter((a) => a === '-vf')).toHaveLength(0)
     expect(multiArgs.filter((a) => a.startsWith('[v_'))).toEqual(['[v_1080p]', '[v_720p]'])
+  })
+})
+
+describe('buildFfmpegArgs with external tracks', () => {
+  it('adds external files as further inputs and maps tracks by input index', () => {
+    const external: EncodePlan = {
+      ...plan,
+      renditions: [],
+      audio: [
+        plan.audio[0]!,
+        { ...plan.audio[1]!, sourceIndex: -1, input: { path: 'C:/in/dub.m4a', streamIndex: 0 }, sourceCodec: 'aac', action: 'copy', outputCodec: 'aac', bitrateKbps: null }
+      ]
+    }
+    const { args, outputs } = buildFfmpegArgs(source, external, 'enc')
+    expect(args.filter((a) => a === '-i')).toHaveLength(2)
+    expect(args.join(' ')).toContain('-i C:/in/movie.mkv -i C:/in/dub.m4a')
+    expect(args.join(' ')).toContain('-map 1:0 -c:a copy')
+    expect(outputs.audio.map((a) => a.file)).toEqual([expect.stringMatching(/audio_1\.mp4$/), expect.stringMatching(/audio_e1\.mp4$/)])
   })
 })
 

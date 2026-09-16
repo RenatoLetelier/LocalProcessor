@@ -57,6 +57,23 @@ export interface SourceInfo {
   subtitles: SourceSubtitle[]
 }
 
+// Where ffmpeg reads a track from: the title source (no path) or an external file
+export interface TrackInput {
+  path?: string
+  streamIndex: number
+}
+
+// A track added from a separate file (a downloaded .srt, an audio dub…). It gets a
+// negative sourceIndex so it never collides with the title's own stream indexes.
+export interface ExternalTrack {
+  kind: 'audio' | 'subtitle'
+  sourceIndex: number
+  path: string
+  language?: string | null
+  name?: string | null
+  forced?: boolean
+}
+
 export interface RenditionPlan {
   label: string
   width: number
@@ -70,20 +87,27 @@ export interface RenditionPlan {
 export type AudioAction = 'copy' | 'transcode'
 
 export interface AudioPlan {
+  // Track identity (DB source_index, folder name); negative for external tracks
   sourceIndex: number
+  input: TrackInput
   action: AudioAction
+  sourceCodec: string
   outputCodec: string
   channels: number
   bitrateKbps: number | null
   language: string
   name: string
+  title: string | null
   isDefault: boolean
 }
 
 export interface SubtitlePlan {
   sourceIndex: number
+  input: TrackInput
+  sourceCodec: string
   language: string
   name: string
+  title: string | null
   forced: boolean
   isDefault: boolean
 }
@@ -110,6 +134,11 @@ export interface PlanOptions {
   rungs: Record<string, Rung>
   qualities: string[]
   segmentDurationSeconds: number
+  // Restrict which source tracks are planned (undefined = all of them)
+  audioIndexes?: number[]
+  subtitleIndexes?: number[]
+  // Incremental jobs must not invent a native rung when the requested one does not apply
+  allowNativeFallback?: boolean
 }
 
 export type PipelineStep = 'probe' | 'plan' | 'encode' | 'package' | 'publish'
@@ -130,6 +159,9 @@ export interface PipelineInput {
   outputRoot: string
   standards: Standard[]
   plan: PlanOptions
+  externalTracks?: ExternalTrack[]
+  // Full reprocess of a published title: the new package replaces the old folder
+  replaceExisting?: boolean
   videoEncoder?: VideoEncoderOptions
 }
 
@@ -151,6 +183,20 @@ export interface PipelineResult {
   source: SourceInfo
   plan: EncodePlan
   metadata: TitleMetadata
+}
+
+// What an incremental job adds to an already published title
+export interface IncrementalInput {
+  titleId: string
+  name: string
+  sourcePath: string
+  outputRoot: string
+  rungs: Record<string, Rung>
+  qualities: string[]
+  audioIndexes: number[]
+  subtitleIndexes: number[]
+  externalTracks: ExternalTrack[]
+  videoEncoder?: VideoEncoderOptions
 }
 
 export interface TitleMetadata {

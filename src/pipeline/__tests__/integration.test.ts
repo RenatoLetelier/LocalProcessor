@@ -1,12 +1,13 @@
 // End-to-end run with the real ffmpeg/ffprobe/packager binaries on a 6-second
 // synthetic clip. Skipped when the binaries are not available.
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG } from '@shared/config'
-import { ProcessError, processTitle, resolveBinaries, type Binaries, type ProgressEvent } from '..'
+import { ProcessError, addToTitle, processTitle, resolveBinaries, type Binaries, type ProgressEvent } from '..'
 import { run } from '../exec'
 import { extractSubtitles } from '../ffmpeg'
 import { probeSource } from '../probe'
@@ -179,8 +180,8 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
       binaries!,
       source,
       [
-        { sourceIndex: 4, language: 'es', name: 'Español', forced: false, isDefault: false },
-        { sourceIndex: 99, language: 'xx', name: 'Fantasma', forced: false, isDefault: false }
+        { sourceIndex: 4, input: { streamIndex: 4 }, sourceCodec: 'subrip', language: 'es', name: 'Español', title: null, forced: false, isDefault: false },
+        { sourceIndex: 99, input: { streamIndex: 99 }, sourceCodec: 'subrip', language: 'xx', name: 'Fantasma', title: null, forced: false, isDefault: false }
       ],
       root,
       {}
@@ -189,6 +190,101 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(result.failed).toEqual([{ kind: 'subtitle', id: '99', reason: expect.stringContaining('no se pudo convertir a WebVTT') }])
     expect(existsSync(join(root, 'sub_4.vtt'))).toBe(true)
   })
+
+  it('adds a quality and external tracks to a published title, merging both manifests', async () => {
+    const srt = join(root, 'extra.srt')
+    writeFileSync(srt, ['1', '00:00:02,000 --> 00:00:05,000', 'Externo', ''].join('\n'))
+    const dub = join(root, 'dub.m4a')
+    execFileSync(binaries!.ffmpeg, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000', '-t', '6', '-c:a', 'aac', '-ac', '2', dub])
+
+    const before = readFileSync(join(outputFolder, 'video/720p/playlist.m3u8'), 'utf8')
+    const result = await addToTitle(
+      binaries!,
+      {
+        titleId,
+        name: 'Sample',
+        sourcePath: join(root, 'sample.mkv'),
+        outputRoot: join(root, 'out'),
+        rungs: DEFAULT_CONFIG.rungs,
+        qualities: ['360p'],
+        audioIndexes: [],
+        subtitleIndexes: [],
+        externalTracks: [
+          { kind: 'subtitle', sourceIndex: -1, path: srt, language: 'de', name: 'Deutsch' },
+          { kind: 'audio', sourceIndex: -2, path: dub, language: 'it', name: 'Italiano' }
+        ],
+        videoEncoder: { preset: 'veryfast' }
+      }
+    )
+
+    // Existing segments untouched, new folders in place
+    expect(readFileSync(join(outputFolder, 'video/720p/playlist.m3u8'), 'utf8')).toBe(before)
+    expect(existsSync(join(outputFolder, 'video/360p/playlist.m3u8'))).toBe(true)
+    expect(existsSync(join(outputFolder, 'audio/e2_it_aac/playlist.m3u8'))).toBe(true)
+    expect(existsSync(join(outputFolder, 'subs/e1_de/seg_00001.vtt'))).toBe(true)
+    expect(existsSync(join(root, 'out', '.tmp'))).toBe(false)
+
+    // Segment length matches the published GOP exactly
+    const durations = [...readFileSync(join(outputFolder, 'video/360p/playlist.m3u8'), 'utf8').matchAll(/#EXTINF:([\d.]+)/g)].map((m) => Number(m[1]))
+    expect(durations.slice(0, -1).every((d) => Math.abs(d - 2.002) < 0.001)).toBe(true)
+
+    const master = readFileSync(join(outputFolder, 'master.m3u8'), 'utf8')
+    // 1920×800 inside 640×360 → 640×266.7, rounded to even
+    expect(master).toContain('RESOLUTION=640x268')
+    expect(master).toContain('URI="audio/e2_it_aac/playlist.m3u8",GROUP-ID="audio",LANGUAGE="it",NAME="Italiano",DEFAULT=NO')
+    expect(master).toContain('URI="subs/e1_de/playlist.m3u8",GROUP-ID="subs",LANGUAGE="de",NAME="Deutsch"')
+    expect(master.match(/#EXT-X-STREAM-INF/g)).toHaveLength(4)
+    expect(master).toContain('LANGUAGE="es",NAME="Español",DEFAULT=YES')
+
+    const mpd = readFileSync(join(outputFolder, 'manifest.mpd'), 'utf8')
+    expect(mpd).toContain('initialization="video/360p/init.mp4"')
+    expect(mpd).toContain('lang="it"')
+    expect(mpd).toContain('lang="de"')
+    const ids = [...mpd.matchAll(/<Representation id="(\d+)"/g)].map((m) => m[1])
+    expect(new Set(ids).size).toBe(ids.length)
+
+    const metadata = JSON.parse(readFileSync(join(outputFolder, 'metadata.json'), 'utf8'))
+    expect(metadata.renditions.map((r: { label: string }) => r.label)).toEqual(['1080p', '720p', '480p', '360p'])
+    expect(metadata.audioTracks.map((a: { id: string }) => a.id)).toContain('e2_it_aac')
+    expect(metadata.subtitleTracks.map((s: { id: string }) => s.id)).toContain('e1_de')
+    expect(result.metadata).toEqual(metadata)
+
+    // Both manifests still parse with everything in them
+    const probe = (file: string): string =>
+      execFileSync(binaries!.ffprobe, ['-v', 'error', '-allowed_extensions', 'ALL', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', file]).toString()
+    expect(probe(join(outputFolder, 'master.m3u8'))).toContain('video')
+    expect(probe(join(outputFolder, 'manifest.mpd'))).toContain('subtitle')
+  }, 120_000)
+
+  it('refuses additions that already exist or would upscale', async () => {
+    const base = { titleId, name: 'Sample', sourcePath: join(root, 'sample.mkv'), outputRoot: join(root, 'out'), rungs: DEFAULT_CONFIG.rungs, audioIndexes: [], subtitleIndexes: [], externalTracks: [] }
+    await expect(addToTitle(binaries!, { ...base, qualities: ['720p'] })).rejects.toThrow(/Ya existe en el título: calidad 720p/)
+    await expect(addToTitle(binaries!, { ...base, qualities: ['2160p'] })).rejects.toThrow(/upscaling/)
+    expect(existsSync(join(root, 'out', '.tmp'))).toBe(false)
+  })
+
+  it('replaces a published title in place on a full reprocess, keeping external tracks', async () => {
+    const result = await processTitle(
+      binaries!,
+      {
+        titleId,
+        name: 'Sample',
+        sourcePath: join(root, 'sample.mkv'),
+        outputRoot: join(root, 'out'),
+        standards: ['hls'],
+        plan: { rungs: DEFAULT_CONFIG.rungs, qualities: ['480p'], segmentDurationSeconds: 3 },
+        externalTracks: [{ kind: 'subtitle', sourceIndex: -1, path: join(root, 'extra.srt'), language: 'de', name: 'Deutsch' }],
+        replaceExisting: true,
+        videoEncoder: { preset: 'veryfast' }
+      }
+    )
+    expect(result.outputFolder).toBe(outputFolder)
+    expect(readdirSync(join(outputFolder, 'video'))).toEqual(['480p'])
+    expect(existsSync(join(outputFolder, 'manifest.mpd'))).toBe(false)
+    expect(existsSync(join(outputFolder, 'subs/e1_de/playlist.m3u8'))).toBe(true)
+    expect(existsSync(`${outputFolder}.old`)).toBe(false)
+    expect(JSON.parse(readFileSync(join(outputFolder, 'metadata.json'), 'utf8')).segmentDurationSeconds).toBeCloseTo(3.003, 3)
+  }, 120_000)
 
   it('leaves nothing behind when a run fails', async () => {
     await expect(
