@@ -55,12 +55,14 @@ export function buildPackagerArgs(plan: EncodePlan, standards: Standard[], optio
         playlist_name: `${dir}/${MEDIA_PLAYLIST}`,
         hls_group_id: 'audio',
         hls_name: audio.name,
+        dash_label: audio.name,
         language: audio.language
       })
     )
   }
 
-  // Raw WebVTT segments: what HLS requires, and what dash.js / Shaka Player / ExoPlayer read as text/vtt
+  // Raw WebVTT segments: what HLS requires, and what dash.js / Shaka Player / ExoPlayer read as text/vtt.
+  // hls_name feeds EXT-X-MEDIA NAME, dash_label the AdaptationSet <Label> (undocumented in --help, works since v2.6)
   for (const subtitle of plan.subtitles) {
     const dir = subtitleDir(subtitle)
     args.push(
@@ -71,6 +73,7 @@ export function buildPackagerArgs(plan: EncodePlan, standards: Standard[], optio
         playlist_name: `${dir}/${MEDIA_PLAYLIST}`,
         hls_group_id: 'subs',
         hls_name: subtitle.name,
+        dash_label: subtitle.name,
         language: subtitle.language,
         ...(subtitle.forced ? { forced_subtitle: '1' } : {})
       })

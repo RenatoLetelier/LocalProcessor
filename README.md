@@ -11,7 +11,10 @@ carpeta lista para streaming".
   ella conservando el aspect ratio.
 - Todas las pistas de audio y subtítulos del original se preservan: AAC/AC-3/E-AC-3
   se copian, el resto (DTS, TrueHD, FLAC…) se transcodifica a AAC conservando los
-  canales; los subtítulos de texto se convierten a WebVTT.
+  canales; los subtítulos de texto se convierten a WebVTT. Los subtítulos quedan
+  desactivados por defecto salvo que el origen marque uno como *default* (solo se
+  respeta en MKV: en MP4 ese flag lo lleva casi siempre la primera pista y se
+  ignora); los forzados se señalan como tales en ambos manifiestos.
 - Un solo set de segmentos CMAF (fMP4) sirve tanto al `master.m3u8` como al
   `manifest.mpd`.
 - Cola de trabajos persistente (SQLite), progreso en tiempo real y reanudación

@@ -117,6 +117,10 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(mpd).toContain('lang="es"')
     expect(mpd).toContain('<Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>')
     expect(mpd).toContain('audio_channel_configuration:2011" value="6"')
+    // Track names travel to DASH as well, so players show "Español" instead of "es"
+    expect(mpd).toContain('<Label>Español</Label>')
+    expect(mpd).toContain('<Label>Français</Label>')
+    expect(mpd).toContain('<Label>Forced</Label>')
     // One set of segments serves both manifests: every media/text segment on disk is listed by exactly one HLS media playlist
     const files = readdirSync(outputFolder, { recursive: true }).map(String)
     const segments = files.filter((f) => f.endsWith('.m4s') || f.endsWith('.vtt'))
@@ -240,6 +244,8 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(mpd).toContain('initialization="video/360p/init.mp4"')
     expect(mpd).toContain('lang="it"')
     expect(mpd).toContain('lang="de"')
+    expect(mpd).toContain('<Label>Italiano</Label>')
+    expect(mpd).toContain('<Label>Deutsch</Label>')
     const ids = [...mpd.matchAll(/<Representation id="(\d+)"/g)].map((m) => m[1])
     expect(new Set(ids).size).toBe(ids.length)
 

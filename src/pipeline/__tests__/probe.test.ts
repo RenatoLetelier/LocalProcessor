@@ -38,9 +38,9 @@ const mkv: FfprobeOutput = {
       tags: { language: 'eng', 'BPS-eng': '1536000' }
     },
     { index: 4, codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', tags: { language: 'spa' }, disposition: { forced: 1 } },
-    { index: 5, codec_type: 'subtitle', codec_name: 'subrip', tags: { language: 'und' } }
+    { index: 5, codec_type: 'subtitle', codec_name: 'subrip', tags: { language: 'und' }, disposition: { default: 1 } }
   ],
-  format: { duration: '5400.123', size: '4000000000', bit_rate: '5925000' }
+  format: { format_name: 'matroska,webm', duration: '5400.123', size: '4000000000', bit_rate: '5925000' }
 }
 
 describe('parseProbeOutput', () => {
@@ -75,8 +75,17 @@ describe('parseProbeOutput', () => {
   })
 
   it('flags image subtitles and forced tracks, normalising "und" to null', () => {
-    expect(info.subtitles[0]).toMatchObject({ index: 4, codec: 'hdmv_pgs_subtitle', isImage: true, isForced: true, language: 'spa' })
-    expect(info.subtitles[1]).toMatchObject({ index: 5, codec: 'subrip', isImage: false, isForced: false, language: null })
+    expect(info.subtitles[0]).toMatchObject({ index: 4, codec: 'hdmv_pgs_subtitle', isImage: true, isForced: true, language: 'spa', isDefault: false })
+    expect(info.subtitles[1]).toMatchObject({ index: 5, codec: 'subrip', isImage: false, isForced: false, language: null, isDefault: true })
+  })
+
+  it('ignores the subtitle default flag in MP4, where it is only the track "enabled" bit', () => {
+    const mp4 = structuredClone(mkv)
+    mp4.format!.format_name = 'mov,mp4,m4a,3gp,3g2,mj2'
+    mp4.streams![5]!.codec_name = 'mov_text'
+    const parsed = parseProbeOutput(mp4, 'x.mp4')
+    expect(parsed.subtitles[1]).toMatchObject({ codec: 'mov_text', isDefault: false })
+    expect(parsed.audio[0]?.isDefault).toBe(true)
   })
 
   it('takes duration and size from the container when the video stream has none', () => {

@@ -31,7 +31,7 @@ export interface FfprobeStream {
 
 export interface FfprobeOutput {
   streams?: FfprobeStream[]
-  format?: { duration?: string; size?: string; bit_rate?: string }
+  format?: { format_name?: string; duration?: string; size?: string; bit_rate?: string }
 }
 
 export async function probeSource(binaries: Binaries, path: string, signal?: AbortSignal): Promise<SourceInfo> {
@@ -46,11 +46,13 @@ export interface TrackFileInfo {
 }
 
 export async function probeTrackFile(binaries: Binaries, path: string, signal?: AbortSignal): Promise<TrackFileInfo> {
-  const streams = (await runProbe(binaries, path, signal)).streams ?? []
+  const output = await runProbe(binaries, path, signal)
+  const streams = output.streams ?? []
+  const authoredDefault = hasAuthoredSubtitleDefault(output.format?.format_name)
   return {
     path,
     audio: streams.filter((s) => s.codec_type === 'audio').map(parseAudio),
-    subtitles: streams.filter((s) => s.codec_type === 'subtitle').map(parseSubtitle)
+    subtitles: streams.filter((s) => s.codec_type === 'subtitle').map((s) => parseSubtitle(s, authoredDefault))
   }
 }
 
@@ -78,7 +80,8 @@ export function parseProbeOutput(output: FfprobeOutput, path: string): SourceInf
   if (!durationSeconds || durationSeconds <= 0) throw new ProbeError('No se pudo determinar la duración del archivo')
 
   const audio = streams.filter((s) => s.codec_type === 'audio').map(parseAudio)
-  const subtitles = streams.filter((s) => s.codec_type === 'subtitle').map(parseSubtitle)
+  const authoredDefault = hasAuthoredSubtitleDefault(format.format_name)
+  const subtitles = streams.filter((s) => s.codec_type === 'subtitle').map((s) => parseSubtitle(s, authoredDefault))
   const containerBitrate = toInt(format.bit_rate)
   const sizeBytes = toInt(format.size) ?? 0
 
@@ -160,7 +163,14 @@ function parseAudio(stream: FfprobeStream): SourceAudio {
   }
 }
 
-function parseSubtitle(stream: FfprobeStream): SourceSubtitle {
+// In MP4/MOV ffprobe reports the track "enabled" bit as disposition.default, and muxers set
+// it on the first track of each type regardless of intent, so it would turn subtitles on for
+// nearly every MP4. Only Matroska (and the like) carries a default flag the author chose.
+function hasAuthoredSubtitleDefault(formatName: string | undefined): boolean {
+  return !(formatName ?? '').split(',').includes('mp4')
+}
+
+function parseSubtitle(stream: FfprobeStream, authoredDefault: boolean): SourceSubtitle {
   const codec = stream.codec_name ?? 'unknown'
   return {
     index: stream.index,
@@ -168,7 +178,7 @@ function parseSubtitle(stream: FfprobeStream): SourceSubtitle {
     language: normalizeTag(stream.tags?.language),
     title: normalizeTag(stream.tags?.title),
     isForced: stream.disposition?.forced === 1,
-    isDefault: stream.disposition?.default === 1,
+    isDefault: authoredDefault && stream.disposition?.default === 1,
     isImage: IMAGE_SUBTITLE_CODECS.has(codec)
   }
 }

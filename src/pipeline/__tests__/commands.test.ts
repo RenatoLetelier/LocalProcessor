@@ -138,20 +138,20 @@ describe('buildPackagerArgs', () => {
       'in=enc/video_720p.mp4,stream=video,init_segment=pkg/video/720p/init.mp4,segment_template=pkg/video/720p/seg_$Number%05d$.m4s,playlist_name=video/720p/playlist.m3u8'
     )
     expect(args[1]).toBe(
-      'in=enc/audio_1.mp4,stream=audio,init_segment=pkg/audio/1_es_aac/init.mp4,segment_template=pkg/audio/1_es_aac/seg_$Number%05d$.m4s,playlist_name=audio/1_es_aac/playlist.m3u8,hls_group_id=audio,hls_name=Español,language=es'
+      'in=enc/audio_1.mp4,stream=audio,init_segment=pkg/audio/1_es_aac/init.mp4,segment_template=pkg/audio/1_es_aac/seg_$Number%05d$.m4s,playlist_name=audio/1_es_aac/playlist.m3u8,hls_group_id=audio,hls_name=Español,dash_label=Español,language=es'
     )
   })
 
   it('strips descriptor separators from track names', () => {
-    expect(args[2]).toContain('hls_name=Director  comments,language=en')
+    expect(args[2]).toContain('hls_name=Director  comments,dash_label=Director  comments,language=en')
   })
 
   it('packages text tracks as raw WebVTT segments, flagging forced ones', () => {
     expect(args[3]).toBe(
-      'in=enc/sub_3.vtt,stream=text,segment_template=pkg/subs/3_es/seg_$Number%05d$.vtt,playlist_name=subs/3_es/playlist.m3u8,hls_group_id=subs,hls_name=Español,language=es'
+      'in=enc/sub_3.vtt,stream=text,segment_template=pkg/subs/3_es/seg_$Number%05d$.vtt,playlist_name=subs/3_es/playlist.m3u8,hls_group_id=subs,hls_name=Español,dash_label=Español,language=es'
     )
     expect(args[4]).toBe(
-      'in=enc/sub_4.vtt,stream=text,segment_template=pkg/subs/4_es/seg_$Number%05d$.vtt,playlist_name=subs/4_es/playlist.m3u8,hls_group_id=subs,hls_name=Forzados,language=es,forced_subtitle=1'
+      'in=enc/sub_4.vtt,stream=text,segment_template=pkg/subs/4_es/seg_$Number%05d$.vtt,playlist_name=subs/4_es/playlist.m3u8,hls_group_id=subs,hls_name=Forzados,dash_label=Forzados,language=es,forced_subtitle=1'
     )
   })
 
