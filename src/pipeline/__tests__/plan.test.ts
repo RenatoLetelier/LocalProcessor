@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG } from '@shared/config'
-import { aacBitrateKbps, fitInBox, gopFrames, planAudio, planEncode, planSubtitle, wouldUpscale } from '../plan'
+import { aacBitrateKbps, fitInBox, gopFrames, planAudio, planAudioTracks, planEncode, planExternalTrack, planSubtitle, wouldUpscale } from '../plan'
 import type { SourceAudio, SourceInfo, SourceSubtitle } from '../types'
 
 const audio = (over: Partial<SourceAudio>): SourceAudio => ({
@@ -212,6 +212,25 @@ describe('planAudio', () => {
 
   it('names untagged tracks as undetermined', () => {
     expect(planAudio(audio({ language: null }))).toMatchObject({ language: 'und', name: 'Desconocido' })
+  })
+
+  it('adds an AAC companion next to copied Dolby tracks only', () => {
+    const dolby = planAudioTracks(audio({ codec: 'ac3', channels: 6, language: 'fra', title: 'VF' }))
+    expect(dolby.map((a) => [a.action, a.outputCodec, a.channels, a.bitrateKbps, a.name])).toEqual([
+      ['copy', 'ac3', 6, null, 'VF'],
+      ['transcode', 'aac', 6, 384, 'VF']
+    ])
+    expect(planAudioTracks(audio({ codec: 'aac' }))).toHaveLength(1)
+    expect(planAudioTracks(audio({ codec: 'dts' }))).toHaveLength(1)
+    // External Dolby dubs get one too, keeping the user's language and name
+    const external = planExternalTrack(
+      { kind: 'audio', sourceIndex: -2, path: 'C:/in/dub.ac3', language: 'it', name: 'Italiano' },
+      { path: 'C:/in/dub.ac3', audio: [audio({ codec: 'eac3', channels: 6 })], subtitles: [] }
+    )
+    expect(Array.isArray(external) && external.map((a) => [a.sourceIndex, a.outputCodec, a.language, a.name, a.input.path])).toEqual([
+      [-2, 'eac3', 'it', 'Italiano', 'C:/in/dub.ac3'],
+      [-2, 'aac', 'it', 'Italiano', 'C:/in/dub.ac3']
+    ])
   })
 
   it('scales AAC bitrate with channels inside 128–512 kbps', () => {

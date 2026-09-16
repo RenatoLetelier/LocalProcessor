@@ -9,7 +9,9 @@ import {
   MEDIA_PLAYLIST,
   SEGMENT_TEMPLATE,
   SUBTITLE_SEGMENT_TEMPLATE,
+  SUBTITLE_GROUP_ID,
   audioDir,
+  audioGroupId,
   encodedAudioFile,
   encodedSubtitleFile,
   encodedVideoFile,
@@ -48,12 +50,12 @@ export function buildPackagerArgs(plan: EncodePlan, standards: Standard[], optio
     const dir = audioDir(audio)
     args.push(
       descriptor({
-        in: `${ENC_DIR}/${encodedAudioFile(audio.sourceIndex)}`,
+        in: `${ENC_DIR}/${encodedAudioFile(audio)}`,
         stream: 'audio',
         init_segment: `${PKG_DIR}/${dir}/${INIT_SEGMENT}`,
         segment_template: `${PKG_DIR}/${dir}/${SEGMENT_TEMPLATE}`,
         playlist_name: `${dir}/${MEDIA_PLAYLIST}`,
-        hls_group_id: 'audio',
+        hls_group_id: audioGroupId(audio),
         hls_name: audio.name,
         dash_label: audio.name,
         language: audio.language
@@ -71,7 +73,7 @@ export function buildPackagerArgs(plan: EncodePlan, standards: Standard[], optio
         stream: 'text',
         segment_template: `${PKG_DIR}/${dir}/${SUBTITLE_SEGMENT_TEMPLATE}`,
         playlist_name: `${dir}/${MEDIA_PLAYLIST}`,
-        hls_group_id: 'subs',
+        hls_group_id: SUBTITLE_GROUP_ID,
         hls_name: subtitle.name,
         dash_label: subtitle.name,
         language: subtitle.language,

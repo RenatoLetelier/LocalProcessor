@@ -44,11 +44,18 @@ export const fakeSource = (path: string, over: Partial<SourceInfo['video']> = {}
 
 export const fakeProbe: Prober = async (_binaries, path) => fakeSource(path)
 
-// External files: .srt → one subrip stream, anything else → one stereo AAC stream
-export const fakeProbeTracks = async (_binaries: Binaries, path: string): Promise<TrackFileInfo> =>
-  path.endsWith('.srt')
-    ? { path, audio: [], subtitles: [{ index: 0, codec: 'subrip', language: null, title: null, isForced: false, isDefault: false, isImage: false }] }
-    : { path, audio: [{ index: 0, codec: 'aac', channels: 2, channelLayout: 'stereo', sampleRate: 48000, bitrate: 128000, language: null, title: null, isDefault: false }], subtitles: [] }
+// External files: .srt → one subrip stream, .eac3 → one 5.1 E-AC-3 stream, anything else → one stereo AAC stream
+export const fakeProbeTracks = async (_binaries: Binaries, path: string): Promise<TrackFileInfo> => {
+  if (path.endsWith('.srt')) {
+    return { path, audio: [], subtitles: [{ index: 0, codec: 'subrip', language: null, title: null, isForced: false, isDefault: false, isImage: false }] }
+  }
+  const dolby = path.endsWith('.eac3')
+  return {
+    path,
+    audio: [{ index: 0, codec: dolby ? 'eac3' : 'aac', channels: dolby ? 6 : 2, channelLayout: dolby ? '5.1' : 'stereo', sampleRate: 48000, bitrate: 128000, language: null, title: null, isDefault: false }],
+    subtitles: []
+  }
+}
 
 export interface FakePipelineOptions {
   // Number of progress ticks and the pause between them (lets tests cancel mid-run)
@@ -65,8 +72,8 @@ export function fakePipeline(options: FakePipelineOptions = {}): PipelineFn {
     const plan = planEncode(source, input.plan)
     for (const track of input.externalTracks ?? []) {
       const planned = planExternalTrack(track, await fakeProbeTracks(_binaries, track.path))
-      if ('reason' in planned) plan.skipped.push(planned)
-      else if ('action' in planned) plan.audio.push(planned)
+      if (Array.isArray(planned)) plan.audio.push(...planned)
+      else if ('reason' in planned) plan.skipped.push(planned)
       else plan.subtitles.push(planned)
     }
     hooks.onProgress?.({ step: 'probe', percent: 0 })
@@ -122,8 +129,8 @@ export function fakeIncremental(options: FakePipelineOptions = {}): IncrementalF
     })
     for (const track of input.externalTracks) {
       const planned = planExternalTrack(track, await fakeProbeTracks(_binaries, track.path))
-      if ('reason' in planned) plan.skipped.push(planned)
-      else if ('action' in planned) plan.audio.push(planned)
+      if (Array.isArray(planned)) plan.audio.push(...planned)
+      else if ('reason' in planned) plan.skipped.push(planned)
       else plan.subtitles.push(planned)
     }
     for (let i = 1; i <= ticks; i++) {

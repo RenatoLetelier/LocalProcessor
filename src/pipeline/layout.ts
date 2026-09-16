@@ -21,12 +21,18 @@ export const WORK_DIR = '.tmp'
 export const trackKey = (sourceIndex: number): string => (sourceIndex < 0 ? `e${-sourceIndex}` : String(sourceIndex))
 
 export const renditionDir = (label: string): string => `video/${label}`
+// A source track can publish two outputs (AC-3 copy + AAC companion): the codec keeps them apart
 export const audioTrackId = (audio: AudioPlan): string => `${trackKey(audio.sourceIndex)}_${audio.language}_${audio.outputCodec}`
 export const audioDir = (audio: AudioPlan): string => `audio/${audioTrackId(audio)}`
 
 export const subtitleTrackId = (subtitle: SubtitlePlan): string => `${trackKey(subtitle.sourceIndex)}_${subtitle.language}`
 export const subtitleDir = (subtitle: SubtitlePlan): string => `subs/${subtitleTrackId(subtitle)}`
 
+// HLS rendition groups: one per audio codec, so every variant lists a single audio
+// codec and players pick the group they can decode (Apple's authoring guidance)
+export const audioGroupId = (audio: Pick<AudioPlan, 'outputCodec'>): string => `audio-${audio.outputCodec}`
+export const SUBTITLE_GROUP_ID = 'subs'
+
 export const encodedVideoFile = (label: string): string => `video_${label}.mp4`
-export const encodedAudioFile = (sourceIndex: number): string => `audio_${trackKey(sourceIndex)}.mp4`
+export const encodedAudioFile = (audio: Pick<AudioPlan, 'sourceIndex' | 'outputCodec'>): string => `audio_${trackKey(audio.sourceIndex)}_${audio.outputCodec}.mp4`
 export const encodedSubtitleFile = (sourceIndex: number): string => `sub_${trackKey(sourceIndex)}.vtt`

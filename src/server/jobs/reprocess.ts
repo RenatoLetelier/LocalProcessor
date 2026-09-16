@@ -113,9 +113,10 @@ async function validateTracks(
 
   const audioIndexes = [...new Set(request.audio ?? [])]
   for (const index of audioIndexes) {
-    const row = audioRows.find((a) => a.source_index === index)
-    if (!row) problems.push(`audio ${index}: no existe en el título`)
-    else if (row.status === 'done') problems.push(`audio ${index}: ya está incluido`)
+    // One row per output codec (Dolby copy + AAC companion share the index)
+    const rows = audioRows.filter((a) => a.source_index === index)
+    if (rows.length === 0) problems.push(`audio ${index}: no existe en el título`)
+    else if (rows.every((row) => row.status === 'done')) problems.push(`audio ${index}: ya está incluido`)
   }
 
   const subtitleIndexes = [...new Set(request.subtitles ?? [])]

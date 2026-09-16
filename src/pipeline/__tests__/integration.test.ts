@@ -64,6 +64,7 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
         'audio/1_es_aac/playlist.m3u8',
         'audio/2_en_aac/playlist.m3u8',
         'audio/3_fr_ac3/playlist.m3u8',
+        'audio/3_fr_aac/playlist.m3u8',
         'subs/4_es/playlist.m3u8',
         'subs/4_es/seg_00001.vtt',
         'subs/5_en/playlist.m3u8'
@@ -85,9 +86,16 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(master).toContain('LANGUAGE="es",NAME="Español",DEFAULT=YES')
     expect(master).toContain('LANGUAGE="en",NAME="English"')
     expect(master).toContain('CHANNELS="6"')
-    // AC-3 is copied, not re-encoded
-    expect(master).toContain('URI="audio/3_fr_ac3/playlist.m3u8",GROUP-ID="audio",LANGUAGE="fr",NAME="Français"')
-    expect(master).toMatch(/CODECS="[^"]*ac-3/)
+    // AC-3 is copied into its own group and also gets an AAC companion in the AAC group
+    expect(master).toContain('URI="audio/3_fr_ac3/playlist.m3u8",GROUP-ID="audio-ac3",LANGUAGE="fr",NAME="Français"')
+    expect(master).toContain('URI="audio/3_fr_aac/playlist.m3u8",GROUP-ID="audio-aac",LANGUAGE="fr",NAME="Français"')
+    // One variant per rendition and group, each naming a single audio codec
+    const variants = [...master.matchAll(/#EXT-X-STREAM-INF:([^\n]+)\n(\S+)/g)].map((m) => [m[2], m[1]!.match(/CODECS="([^"]+)"/)![1], m[1]!.match(/AUDIO="([^"]+)"/)![1]])
+    expect(variants).toHaveLength(6)
+    expect(variants.filter(([uri]) => uri === 'video/720p/playlist.m3u8').map(([, codecs, group]) => `${group}:${codecs}`).sort()).toEqual([
+      'audio-aac:avc1.64001f,mp4a.40.2',
+      'audio-ac3:avc1.64001f,ac-3'
+    ])
   })
 
   it('converts text subtitles to WebVTT for both manifests, forced flag included, off by default', () => {
@@ -146,7 +154,8 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
       audioTracks: [
         { id: '1_es_aac', language: 'es', codec: 'aac', channels: 2, path: 'audio/1_es_aac' },
         { id: '2_en_aac', language: 'en', codec: 'aac', channels: 6, path: 'audio/2_en_aac' },
-        { id: '3_fr_ac3', language: 'fr', codec: 'ac3', channels: 2, path: 'audio/3_fr_ac3' }
+        { id: '3_fr_ac3', language: 'fr', codec: 'ac3', channels: 2, path: 'audio/3_fr_ac3' },
+        { id: '3_fr_aac', language: 'fr', name: 'Français', codec: 'aac', channels: 2, path: 'audio/3_fr_aac' }
       ],
       subtitleTracks: [
         { id: '4_es', language: 'es', name: 'Español', format: 'vtt', forced: false, path: 'subs/4_es' },
@@ -178,20 +187,26 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(existsSync(join(result.outputFolder, 'video/180p/playlist.m3u8'))).toBe(true)
   }, 60_000)
 
-  it('skips a subtitle ffmpeg cannot convert instead of failing the whole job', async () => {
+  it('skips a subtitle ffmpeg cannot convert, or one without cues, instead of failing the whole job', async () => {
     const source = await probeSource(binaries!, join(root, 'sample.mkv'))
+    const empty = join(root, 'empty.vtt')
+    writeFileSync(empty, 'WEBVTT\n\n')
     const result = await extractSubtitles(
       binaries!,
       source,
       [
         { sourceIndex: 4, input: { streamIndex: 4 }, sourceCodec: 'subrip', language: 'es', name: 'Español', title: null, forced: false, isDefault: false },
-        { sourceIndex: 99, input: { streamIndex: 99 }, sourceCodec: 'subrip', language: 'xx', name: 'Fantasma', title: null, forced: false, isDefault: false }
+        { sourceIndex: 99, input: { streamIndex: 99 }, sourceCodec: 'subrip', language: 'xx', name: 'Fantasma', title: null, forced: false, isDefault: false },
+        { sourceIndex: -7, input: { path: empty, streamIndex: 0 }, sourceCodec: 'webvtt', language: 'xx', name: 'Vacío', title: null, forced: false, isDefault: false }
       ],
       root,
       {}
     )
     expect(result.extracted.map((s) => s.sourceIndex)).toEqual([4])
-    expect(result.failed).toEqual([{ kind: 'subtitle', id: '99', reason: expect.stringContaining('no se pudo convertir a WebVTT') }])
+    expect(result.failed).toEqual([
+      { kind: 'subtitle', id: '99', reason: expect.stringContaining('no se pudo convertir a WebVTT') },
+      { kind: 'subtitle', id: '-7', reason: 'la pista no contiene ningún subtítulo' }
+    ])
     expect(existsSync(join(root, 'sub_4.vtt'))).toBe(true)
   })
 
@@ -235,10 +250,18 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     const master = readFileSync(join(outputFolder, 'master.m3u8'), 'utf8')
     // 1920×800 inside 640×360 → 640×266.7, rounded to even
     expect(master).toContain('RESOLUTION=640x268')
-    expect(master).toContain('URI="audio/e2_it_aac/playlist.m3u8",GROUP-ID="audio",LANGUAGE="it",NAME="Italiano",DEFAULT=NO')
+    expect(master).toContain('URI="audio/e2_it_aac/playlist.m3u8",GROUP-ID="audio-aac",LANGUAGE="it",NAME="Italiano",DEFAULT=NO')
     expect(master).toContain('URI="subs/e1_de/playlist.m3u8",GROUP-ID="subs",LANGUAGE="de",NAME="Deutsch"')
-    expect(master.match(/#EXT-X-STREAM-INF/g)).toHaveLength(4)
     expect(master).toContain('LANGUAGE="es",NAME="Español",DEFAULT=YES')
+    // 4 renditions × 2 audio groups; the new rendition's bandwidth comes from its segments
+    const variants = [...master.matchAll(/#EXT-X-STREAM-INF:([^\n]+)\n(\S+)/g)].map((m) => ({ uri: m[2]!, attrs: m[1]! }))
+    expect(variants).toHaveLength(8)
+    const small = variants.filter((v) => v.uri === 'video/360p/playlist.m3u8')
+    expect(small.map((v) => v.attrs.match(/AUDIO="([^"]+)"/)![1]).sort()).toEqual(['audio-aac', 'audio-ac3'])
+    for (const v of small) {
+      expect(Number(v.attrs.match(/BANDWIDTH=(\d+)/)![1])).toBeGreaterThan(100_000)
+      expect(v.attrs).toContain('SUBTITLES="subs"')
+    }
 
     const mpd = readFileSync(join(outputFolder, 'manifest.mpd'), 'utf8')
     expect(mpd).toContain('initialization="video/360p/init.mp4"')

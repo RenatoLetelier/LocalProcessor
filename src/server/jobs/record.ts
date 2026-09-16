@@ -105,10 +105,17 @@ export function recordIncremental(repos: Repositories, db: DatabaseSync, result:
     }
 
     const audioRows = repos.audioTracks.listByTitle(titleId)
+    const claimed = new Set<string>()
     for (const audio of plan.audio) {
-      const row = audioRows.find((a) => a.source_index === audio.sourceIndex)
-      if (row) repos.audioTracks.update(row.id, { codec_salida: audio.outputCodec, channels: audio.channels, status: 'done' })
-      else {
+      // The row of this output codec, or the pending one inserted at enqueue (no codec yet);
+      // a Dolby track claims it for the copy and gets a second row for the AAC companion
+      const row = audioRows.find(
+        (a) => a.source_index === audio.sourceIndex && !claimed.has(a.id) && (a.codec_salida === audio.outputCodec || a.codec_salida === null)
+      )
+      if (row) {
+        claimed.add(row.id)
+        repos.audioTracks.update(row.id, { codec_salida: audio.outputCodec, channels: audio.channels, status: 'done' })
+      } else {
         repos.audioTracks.create({
           title_id: titleId,
           source_index: audio.sourceIndex,

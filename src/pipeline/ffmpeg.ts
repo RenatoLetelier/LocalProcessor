@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SOFTWARE_ENCODER, encoderFilterSuffix, encoderGlobalArgs, videoCodecArgs, type EncoderKind } from './encoders'
 import { run } from './exec'
@@ -18,7 +19,7 @@ export const DEFAULT_VIDEO_ENCODER: Required<VideoEncoderOptions> = { kind: SOFT
 
 export interface EncodeOutputs {
   video: { label: string; file: string }[]
-  audio: { sourceIndex: number; file: string }[]
+  audio: { sourceIndex: number; outputCodec: string; file: string }[]
 }
 
 // One ffmpeg invocation decodes the source once and writes every rendition and
@@ -57,9 +58,9 @@ export function buildFfmpegArgs(
   })
 
   for (const audio of plan.audio) {
-    const file = join(encDir, encodedAudioFile(audio.sourceIndex))
+    const file = join(encDir, encodedAudioFile(audio))
     args.push('-map', inputs.map(audio.input), ...audioCodecArgs(audio), '-vn', '-sn', '-dn', '-map_metadata', '-1', '-f', 'mp4', file)
-    outputs.audio.push({ sourceIndex: audio.sourceIndex, file })
+    outputs.audio.push({ sourceIndex: audio.sourceIndex, outputCodec: audio.outputCodec, file })
   }
 
   return { args, outputs }
@@ -152,6 +153,11 @@ export async function extractSubtitles(
     hooks.onLog?.(`ffmpeg ${args.join(' ')}`)
     try {
       await run(binaries.ffmpeg, args, { signal: hooks.signal, onStderrLine: hooks.onLog })
+      // The packager aborts the whole run on a WebVTT without cues (END_OF_STREAM)
+      if (!(await hasCues(file))) {
+        result.failed.push({ kind: 'subtitle', id: String(subtitle.sourceIndex), reason: 'la pista no contiene ningún subtítulo' })
+        continue
+      }
       result.extracted.push(subtitle)
       result.files.push({ sourceIndex: subtitle.sourceIndex, file })
     } catch (error) {
@@ -161,4 +167,9 @@ export async function extractSubtitles(
     }
   }
   return result
+}
+
+// A cue is a "start --> end" timing line
+async function hasCues(vttFile: string): Promise<boolean> {
+  return /-->/.test(await readFile(vttFile, 'utf8'))
 }

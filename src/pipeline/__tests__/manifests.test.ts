@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { mergeMasterPlaylists, mergeMetadata, mergeMpds, parseMaster } from '../manifests'
+import { measureBandwidth, mergeMasterPlaylists, mergeMetadata, mergeMpds, parseMaster, type StreamBandwidth } from '../manifests'
 import type { TitleMetadata } from '../types'
 
 const existingMaster = `#EXTM3U
@@ -7,46 +10,110 @@ const existingMaster = `#EXTM3U
 
 #EXT-X-INDEPENDENT-SEGMENTS
 
-#EXT-X-MEDIA:TYPE=AUDIO,URI="audio/1_es_aac/playlist.m3u8",GROUP-ID="audio",LANGUAGE="es",NAME="Español",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="2"
+#EXT-X-MEDIA:TYPE=AUDIO,URI="audio/1_es_aac/playlist.m3u8",GROUP-ID="audio-aac",LANGUAGE="es",NAME="Español",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="2"
 #EXT-X-MEDIA:TYPE=SUBTITLES,URI="subs/4_es/playlist.m3u8",GROUP-ID="subs",LANGUAGE="es",NAME="Español",DEFAULT=NO,AUTOSELECT=YES
 
-#EXT-X-STREAM-INF:BANDWIDTH=1900000,AVERAGE-BANDWIDTH=1800000,CODECS="avc1.64001f,mp4a.40.2",RESOLUTION=1280x534,FRAME-RATE=23.976,AUDIO="audio",SUBTITLES="subs",CLOSED-CAPTIONS=NONE
+#EXT-X-STREAM-INF:BANDWIDTH=1900000,AVERAGE-BANDWIDTH=1796000,CODECS="avc1.64001f,mp4a.40.2",RESOLUTION=1280x534,FRAME-RATE=23.976,AUDIO="audio-aac",SUBTITLES="subs",CLOSED-CAPTIONS=NONE
 video/720p/playlist.m3u8
 `
 
+// What the segments on disk would measure as, per playlist
+const bandwidths: Record<string, StreamBandwidth> = {
+  'video/720p/playlist.m3u8': { peak: 1800000, average: 1700000 },
+  'video/480p/playlist.m3u8': { peak: 700000, average: 650000 },
+  'audio/1_es_aac/playlist.m3u8': { peak: 100000, average: 96000 },
+  'audio/e1_it_aac/playlist.m3u8': { peak: 130000, average: 128000 },
+  'audio/e1_it_eac3/playlist.m3u8': { peak: 400000, average: 390000 }
+}
+const bandwidthOf = async (uri: string): Promise<StreamBandwidth> => {
+  const value = bandwidths[uri]
+  if (!value) throw new Error(`sin medición para ${uri}`)
+  return value
+}
+const attribute = (variant: { attributes: { key: string; value: string }[] }, key: string): string | undefined =>
+  variant.attributes.find((a) => a.key === key)?.value
+
 describe('mergeMasterPlaylists', () => {
-  it('adds a video-only run as a new variant sharing the audio/subtitle groups and codecs', () => {
+  it('adds a video-only run as a new variant of every audio group, with its bandwidth measured', async () => {
     const addition = `#EXTM3U
 #EXT-X-INDEPENDENT-SEGMENTS
-#EXT-X-STREAM-INF:BANDWIDTH=800000,AVERAGE-BANDWIDTH=770000,CODECS="avc1.64001e",RESOLUTION=854x356,FRAME-RATE=23.976,CLOSED-CAPTIONS=NONE
+#EXT-X-STREAM-INF:BANDWIDTH=700000,AVERAGE-BANDWIDTH=650000,CODECS="avc1.64001e",RESOLUTION=854x356,FRAME-RATE=23.976,CLOSED-CAPTIONS=NONE
 video/480p/playlist.m3u8
 `
-    const merged = parseMaster(mergeMasterPlaylists(existingMaster, addition))
+    const merged = parseMaster(await mergeMasterPlaylists(existingMaster, addition, bandwidthOf))
     expect(merged.variants.map((v) => v.uri)).toEqual(['video/720p/playlist.m3u8', 'video/480p/playlist.m3u8'])
-    const added = merged.variants[1]!.attributes
-    expect(added.find((a) => a.key === 'CODECS')).toEqual({ key: 'CODECS', value: 'avc1.64001e,mp4a.40.2', quoted: true })
-    expect(added.find((a) => a.key === 'AUDIO')?.value).toBe('audio')
-    expect(added.find((a) => a.key === 'SUBTITLES')?.value).toBe('subs')
+    const added = merged.variants[1]!
+    expect(attribute(added, 'CODECS')).toBe('avc1.64001e,mp4a.40.2')
+    expect(attribute(added, 'AUDIO')).toBe('audio-aac')
+    expect(attribute(added, 'SUBTITLES')).toBe('subs')
+    expect(attribute(added, 'RESOLUTION')).toBe('854x356')
+    expect(attribute(added, 'BANDWIDTH')).toBe('800000')
+    expect(attribute(added, 'AVERAGE-BANDWIDTH')).toBe('746000')
     expect(merged.media).toHaveLength(2)
     expect(merged.header).toEqual(['#EXTM3U', '## Generated with shaka-packager', '#EXT-X-INDEPENDENT-SEGMENTS'])
   })
 
-  it('adds audio/subtitle renditions without a second default and spreads new codecs to every variant', () => {
+  it('multiplies the renditions by the audio groups and keeps one default per group', async () => {
     const addition = `#EXTM3U
-#EXT-X-MEDIA:TYPE=AUDIO,URI="audio/e1_it_eac3/playlist.m3u8",GROUP-ID="audio",LANGUAGE="it",NAME="Italiano",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="6"
+#EXT-X-MEDIA:TYPE=AUDIO,URI="audio/e1_it_aac/playlist.m3u8",GROUP-ID="audio-aac",LANGUAGE="it",NAME="Italiano",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="6"
+#EXT-X-MEDIA:TYPE=AUDIO,URI="audio/e1_it_eac3/playlist.m3u8",GROUP-ID="audio-eac3",LANGUAGE="it",NAME="Italiano",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="6"
 #EXT-X-MEDIA:TYPE=SUBTITLES,URI="subs/e1_de/playlist.m3u8",GROUP-ID="subs",LANGUAGE="de",NAME="Deutsch",DEFAULT=NO,AUTOSELECT=YES
-#EXT-X-STREAM-INF:BANDWIDTH=400000,CODECS="ec-3",AUDIO="audio"
+#EXT-X-STREAM-INF:BANDWIDTH=130000,AVERAGE-BANDWIDTH=128000,CODECS="mp4a.40.2",AUDIO="audio-aac",CLOSED-CAPTIONS=NONE
+audio/e1_it_aac/playlist.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=400000,AVERAGE-BANDWIDTH=390000,CODECS="ec-3",AUDIO="audio-eac3",CLOSED-CAPTIONS=NONE
 audio/e1_it_eac3/playlist.m3u8
 `
-    const text = mergeMasterPlaylists(existingMaster, addition)
+    const text = await mergeMasterPlaylists(existingMaster, addition, bandwidthOf)
     const merged = parseMaster(text)
-    expect(merged.variants).toHaveLength(1)
-    expect(merged.variants[0]!.attributes.find((a) => a.key === 'CODECS')?.value).toBe('avc1.64001f,mp4a.40.2,ec-3')
-    const italian = merged.media.find((m) => m.attributes.some((a) => a.key === 'LANGUAGE' && a.value === 'it'))!
-    expect(italian.attributes.find((a) => a.key === 'DEFAULT')?.value).toBe('NO')
+    expect(merged.variants.map((v) => [v.uri, attribute(v, 'AUDIO'), attribute(v, 'CODECS'), attribute(v, 'BANDWIDTH')])).toEqual([
+      ['video/720p/playlist.m3u8', 'audio-aac', 'avc1.64001f,mp4a.40.2', '1930000'],
+      ['video/720p/playlist.m3u8', 'audio-eac3', 'avc1.64001f,ec-3', '2200000']
+    ])
+    const italian = merged.media.filter((m) => attribute(m, 'LANGUAGE') === 'it')
+    expect(italian.map((m) => [attribute(m, 'GROUP-ID'), attribute(m, 'DEFAULT')])).toEqual([
+      ['audio-aac', 'NO'],
+      ['audio-eac3', 'YES']
+    ])
     expect(text).toContain('URI="subs/e1_de/playlist.m3u8"')
+    expect(merged.variants.every((v) => attribute(v, 'SUBTITLES') === 'subs')).toBe(true)
     // idempotent: merging the same addition twice changes nothing
-    expect(mergeMasterPlaylists(text, addition)).toBe(text)
+    expect(await mergeMasterPlaylists(text, addition, bandwidthOf)).toBe(text)
+  })
+
+  it('keeps the mixed "audio" group of titles published before per-codec groups', async () => {
+    const legacy = existingMaster
+      .replace(/GROUP-ID="audio-aac"/g, 'GROUP-ID="audio"')
+      .replace('CODECS="avc1.64001f,mp4a.40.2"', 'CODECS="avc1.64001f,mp4a.40.2,ac-3"')
+      .replace('AUDIO="audio-aac"', 'AUDIO="audio"')
+    const addition = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,URI="audio/e1_it_aac/playlist.m3u8",GROUP-ID="audio-aac",LANGUAGE="it",NAME="Italiano",DEFAULT=NO,AUTOSELECT=YES,CHANNELS="6"
+#EXT-X-STREAM-INF:BANDWIDTH=130000,AVERAGE-BANDWIDTH=128000,CODECS="mp4a.40.2",AUDIO="audio-aac",CLOSED-CAPTIONS=NONE
+audio/e1_it_aac/playlist.m3u8
+`
+    const merged = parseMaster(await mergeMasterPlaylists(legacy, addition, bandwidthOf))
+    expect(merged.variants.map((v) => [attribute(v, 'AUDIO'), attribute(v, 'CODECS')])).toEqual([
+      ['audio', 'avc1.64001f,mp4a.40.2,ac-3'],
+      ['audio-aac', 'avc1.64001f,mp4a.40.2']
+    ])
+  })
+})
+
+describe('measureBandwidth', () => {
+  it('reads segment sizes and durations from the playlist, ignoring the short tail for the peak', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lp-bw-'))
+    try {
+      writeFileSync(join(dir, 'seg_00001.m4s'), Buffer.alloc(6000))
+      writeFileSync(join(dir, 'seg_00002.m4s'), Buffer.alloc(9000))
+      writeFileSync(join(dir, 'seg_00003.m4s'), Buffer.alloc(3000))
+      writeFileSync(
+        join(dir, 'playlist.m3u8'),
+        ['#EXTM3U', '#EXT-X-MAP:URI="init.mp4"', '#EXTINF:6.000,', 'seg_00001.m4s', '#EXTINF:6.000,', 'seg_00002.m4s', '#EXTINF:1.000,', 'seg_00003.m4s', '#EXT-X-ENDLIST', ''].join('\n')
+      )
+      // peak: 9000 B over 6 s = 12000 b/s (the 1 s tail would be 24000); average: 18000 B over 13 s
+      expect(await measureBandwidth(join(dir, 'playlist.m3u8'))).toEqual({ peak: 12000, average: 11077 })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

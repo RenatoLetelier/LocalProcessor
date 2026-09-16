@@ -218,6 +218,9 @@ function TitleView({ title, onBack }: { title: Title; onBack: () => void }) {
                         <td>
                           {a.codec_origen}
                           {a.codec_salida && a.codec_salida !== a.codec_origen ? ` → ${a.codec_salida}` : ''}
+                          {a.codec_salida === 'aac' && (a.codec_origen === 'ac3' || a.codec_origen === 'eac3') && (
+                            <div className="table__note">versión de compatibilidad</div>
+                          )}
                         </td>
                         <td>{a.channels ?? '—'}</td>
                         <td className="muted">{a.status}</td>

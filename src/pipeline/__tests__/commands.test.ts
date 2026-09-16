@@ -75,7 +75,7 @@ describe('buildFfmpegArgs', () => {
     const text = args.join(' ')
     expect(text).toContain('-map 0:1 -c:a copy')
     expect(text).toContain('-map 0:2 -c:a aac -b:a 384k -ac 6')
-    expect(outputs.audio.map((a) => a.file)).toEqual([expect.stringMatching(/audio_1\.mp4$/), expect.stringMatching(/audio_2\.mp4$/)])
+    expect(outputs.audio.map((a) => a.file)).toEqual([expect.stringMatching(/audio_1_aac\.mp4$/), expect.stringMatching(/audio_2_aac\.mp4$/)])
   })
 
   it('splits the decoded video once when several renditions are planned', () => {
@@ -109,7 +109,7 @@ describe('buildFfmpegArgs with external tracks', () => {
     expect(args.filter((a) => a === '-i')).toHaveLength(2)
     expect(args.join(' ')).toContain('-i C:/in/movie.mkv -i C:/in/dub.m4a')
     expect(args.join(' ')).toContain('-map 1:0 -c:a copy')
-    expect(outputs.audio.map((a) => a.file)).toEqual([expect.stringMatching(/audio_1\.mp4$/), expect.stringMatching(/audio_e1\.mp4$/)])
+    expect(outputs.audio.map((a) => a.file)).toEqual([expect.stringMatching(/audio_1_aac\.mp4$/), expect.stringMatching(/audio_e1_aac\.mp4$/)])
   })
 })
 
@@ -138,8 +138,23 @@ describe('buildPackagerArgs', () => {
       'in=enc/video_720p.mp4,stream=video,init_segment=pkg/video/720p/init.mp4,segment_template=pkg/video/720p/seg_$Number%05d$.m4s,playlist_name=video/720p/playlist.m3u8'
     )
     expect(args[1]).toBe(
-      'in=enc/audio_1.mp4,stream=audio,init_segment=pkg/audio/1_es_aac/init.mp4,segment_template=pkg/audio/1_es_aac/seg_$Number%05d$.m4s,playlist_name=audio/1_es_aac/playlist.m3u8,hls_group_id=audio,hls_name=Español,dash_label=Español,language=es'
+      'in=enc/audio_1_aac.mp4,stream=audio,init_segment=pkg/audio/1_es_aac/init.mp4,segment_template=pkg/audio/1_es_aac/seg_$Number%05d$.m4s,playlist_name=audio/1_es_aac/playlist.m3u8,hls_group_id=audio-aac,hls_name=Español,dash_label=Español,language=es'
     )
+  })
+
+  it('puts each audio codec in its own HLS group so every variant lists a single one', () => {
+    const dolby: EncodePlan = {
+      ...plan,
+      audio: [
+        { ...plan.audio[0]!, sourceIndex: 3, input: { streamIndex: 3 }, sourceCodec: 'eac3', outputCodec: 'eac3', channels: 6, language: 'fr', name: 'Français' },
+        { ...plan.audio[0]!, sourceIndex: 3, input: { streamIndex: 3 }, action: 'transcode', sourceCodec: 'eac3', outputCodec: 'aac', channels: 6, bitrateKbps: 384, language: 'fr', name: 'Français' }
+      ]
+    }
+    const [, copy, companion] = buildPackagerArgs(dolby, ['hls'])
+    expect(copy).toContain('in=enc/audio_3_eac3.mp4,stream=audio,init_segment=pkg/audio/3_fr_eac3/init.mp4')
+    expect(copy).toContain('hls_group_id=audio-eac3,hls_name=Français')
+    expect(companion).toContain('in=enc/audio_3_aac.mp4,stream=audio,init_segment=pkg/audio/3_fr_aac/init.mp4')
+    expect(companion).toContain('hls_group_id=audio-aac,hls_name=Français')
   })
 
   it('strips descriptor separators from track names', () => {

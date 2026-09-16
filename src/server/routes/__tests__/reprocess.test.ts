@@ -130,6 +130,21 @@ describe('agregar_pista', () => {
     const again = await reprocess({ tipo: 'agregar_pista', files: [{ path: join(root, 'extra.srt'), kind: 'subtitle' }] })
     expect(again.json().problems).toEqual([`archivo ya agregado a este título: ${join(root, 'extra.srt')}`])
   })
+
+  it('records a Dolby dub as its copy plus an AAC companion sharing the index', async () => {
+    writeFileSync(join(root, 'dub.eac3'), 'audio')
+    const { job } = (await reprocess({ tipo: 'agregar_pista', files: [{ path: join(root, 'dub.eac3'), kind: 'audio', language: 'fra', name: 'VF' }] })).json()
+    await untilJob(job.id, 'done')
+
+    const rows = server.db.repos.audioTracks.listByTitle(titleId).filter((a) => a.source_path === join(root, 'dub.eac3'))
+    expect(rows.map((a) => [a.source_index, a.codec_origen, a.codec_salida, a.channels, a.title, a.status]).sort()).toEqual([
+      [-1, 'eac3', 'aac', 6, 'VF', 'done'],
+      [-1, 'eac3', 'eac3', 6, 'VF', 'done']
+    ])
+    // Both rows count as included: nothing left to add for that index
+    const again = await reprocess({ tipo: 'agregar_pista', audio: [-1] })
+    expect(again.json().problems).toEqual(['audio -1: ya está incluido'])
+  })
 })
 
 describe('reprocesar_completo', () => {

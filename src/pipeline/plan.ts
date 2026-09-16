@@ -16,7 +16,9 @@ import type {
   TrackInput
 } from './types'
 
-// Audio codecs browsers and HLS/DASH accept as-is inside fMP4
+// Audio codecs HLS/DASH accept as-is inside fMP4. Dolby tracks are copied for the
+// players that decode them (Safari, Edge, TVs) and also get an AAC companion, since
+// Chrome and Firefox cannot play AC-3/E-AC-3 at all.
 export const STREAMABLE_AUDIO_CODECS = new Set(['aac', 'ac3', 'eac3'])
 export const TRANSCODE_AUDIO_CODEC = 'aac'
 const MAX_AAC_CHANNELS = 8
@@ -78,7 +80,7 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
   }
 
   const wanted = (indexes: number[] | undefined, index: number): boolean => indexes === undefined || indexes.includes(index)
-  const audio = source.audio.filter((track) => wanted(options.audioIndexes, track.index)).map((track) => planAudio(track))
+  const audio = source.audio.filter((track) => wanted(options.audioIndexes, track.index)).flatMap((track) => planAudioTracks(track))
   const subtitles: SubtitlePlan[] = []
   for (const subtitle of source.subtitles) {
     if (!wanted(options.subtitleIndexes, subtitle.index)) continue
@@ -157,6 +159,20 @@ export function planAudio(track: SourceAudio, input?: TrackInput, sourceIndex = 
   }
 }
 
+// Everything a source track publishes: the track itself plus, for copied Dolby
+// audio, an AAC companion with the same channels, name and language
+export function planAudioTracks(track: SourceAudio, input?: TrackInput, sourceIndex = track.index): AudioPlan[] {
+  const primary = planAudio(track, input, sourceIndex)
+  const companion = aacCompanion(primary)
+  return companion ? [primary, companion] : [primary]
+}
+
+export function aacCompanion(audio: AudioPlan): AudioPlan | null {
+  if (audio.action !== 'copy' || audio.outputCodec === TRANSCODE_AUDIO_CODEC) return null
+  const channels = Math.min(audio.channels, MAX_AAC_CHANNELS)
+  return { ...audio, action: 'transcode', outputCodec: TRANSCODE_AUDIO_CODEC, channels, bitrateKbps: aacBitrateKbps(channels) }
+}
+
 // 64 kbps per channel, bounded: 128k stereo, 384k 5.1, 512k 7.1
 export function aacBitrateKbps(channels: number): number {
   return Math.min(512, Math.max(128, 64 * channels))
@@ -164,14 +180,14 @@ export function aacBitrateKbps(channels: number): number {
 
 // An external file contributes its first stream of the requested kind; language and
 // name given by the user win over whatever the file declares.
-export function planExternalTrack(track: ExternalTrack, info: TrackFileInfo | null): AudioPlan | SubtitlePlan | SkippedItem {
+export function planExternalTrack(track: ExternalTrack, info: TrackFileInfo | null): AudioPlan[] | SubtitlePlan | SkippedItem {
   const id = String(track.sourceIndex)
   const input: TrackInput = { path: track.path, streamIndex: 0 }
 
   if (track.kind === 'audio') {
     const stream = info?.audio[0]
     if (!stream) return { kind: 'audio', id, reason: `el archivo no contiene audio: ${track.path}` }
-    return planAudio(
+    return planAudioTracks(
       { ...stream, language: track.language ?? stream.language, title: track.name ?? stream.title, isDefault: false },
       { ...input, streamIndex: stream.index },
       track.sourceIndex

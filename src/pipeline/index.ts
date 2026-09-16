@@ -4,7 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { dirname, join } from 'node:path'
 import { buildFfmpegArgs, extractSubtitles, runFfmpeg, type EncodeOutputs } from './ffmpeg'
 import { DASH_MANIFEST, MASTER_PLAYLIST, METADATA_FILE, WORK_DIR, audioDir, renditionDir, subtitleDir } from './layout'
-import { mergeMasterPlaylists, mergeMetadata, mergeMpds, replaceFileAtomic } from './manifests'
+import { measureBandwidth, mergeMasterPlaylists, mergeMetadata, mergeMpds, replaceFileAtomic } from './manifests'
 import { buildMetadata, writeJsonAtomic } from './metadata'
 import { ENC_DIR, PKG_DIR, buildPackagerArgs, runPackager } from './packager'
 import { planEncode, planExternalTrack } from './plan'
@@ -176,7 +176,11 @@ export async function addToTitle(
       await rename(join(dirs.pkgDir, dir), join(titleDir, dir))
     }
     if (published.standards.includes('hls')) {
-      const merged = mergeMasterPlaylists(await readFile(join(titleDir, MASTER_PLAYLIST), 'utf8'), await readFile(join(dirs.pkgDir, MASTER_PLAYLIST), 'utf8'))
+      const merged = await mergeMasterPlaylists(
+        await readFile(join(titleDir, MASTER_PLAYLIST), 'utf8'),
+        await readFile(join(dirs.pkgDir, MASTER_PLAYLIST), 'utf8'),
+        (uri) => measureBandwidth(join(titleDir, uri))
+      )
       await replaceFileAtomic(join(titleDir, MASTER_PLAYLIST), merged)
     }
     if (published.standards.includes('dash')) {
@@ -215,8 +219,8 @@ async function probeExternalTracks(binaries: Binaries, tracks: ExternalTrack[], 
 function addExternalTracks(plan: EncodePlan, tracks: ExternalTrack[], infos: Map<string, TrackFileInfo | null>): void {
   for (const track of tracks) {
     const planned = planExternalTrack(track, infos.get(track.path) ?? null)
-    if ('reason' in planned) plan.skipped.push(planned)
-    else if ('action' in planned) plan.audio.push(planned)
+    if (Array.isArray(planned)) plan.audio.push(...planned)
+    else if ('reason' in planned) plan.skipped.push(planned)
     else plan.subtitles.push(planned)
   }
 }

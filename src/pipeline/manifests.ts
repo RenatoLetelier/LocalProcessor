@@ -1,4 +1,5 @@
-import { rename, writeFile } from 'node:fs/promises'
+import { readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { XMLBuilder, XMLParser } from 'fast-xml-parser'
 import type { TitleMetadata } from './types'
@@ -91,7 +92,19 @@ export function serializeMaster(master: HlsMaster): string {
   return lines.join('\n') + '\n'
 }
 
-export function mergeMasterPlaylists(existingText: string, additionText: string): string {
+export interface StreamBandwidth {
+  peak: number
+  average: number
+}
+
+// Bits per second of a published media playlist, relative to the title folder
+export type BandwidthLookup = (playlistUri: string) => Promise<StreamBandwidth>
+
+// Shaka Packager writes one EXT-X-STREAM-INF per video rendition × audio group, and
+// only knows the streams of its own run. The merged master is rebuilt the same way
+// from every rendition and group published so far; bandwidths come from the
+// segments on disk because the playlists do not carry them.
+export async function mergeMasterPlaylists(existingText: string, additionText: string, bandwidthOf: BandwidthLookup): Promise<string> {
   const existing = parseMaster(existingText)
   const addition = parseMaster(additionText)
 
@@ -99,49 +112,96 @@ export function mergeMasterPlaylists(existingText: string, additionText: string)
     if (!existing.header.includes(line) && !line.startsWith('##')) existing.header.push(line)
   }
 
-  // A run without video yields an audio-only variant: only its codecs are useful
-  const mediaUris = new Set([...existing.media, ...addition.media].map((m) => attr(m.attributes, 'URI')))
-  const newAudioCodecs = new Set<string>()
-  const videoVariants: HlsVariant[] = []
-  for (const variant of addition.variants) {
-    const codecs = codecsOf(variant.attributes)
-    if (mediaUris.has(variant.uri) || !codecs.some(isVideoCodec)) {
-      for (const codec of codecs) if (!isVideoCodec(codec)) newAudioCodecs.add(codec)
-    } else {
-      videoVariants.push(variant)
-    }
-  }
-
-  const hasDefault = (type: string): boolean =>
-    existing.media.some((m) => attr(m.attributes, 'TYPE') === type && attr(m.attributes, 'DEFAULT') === 'YES')
+  // New renditions join by URI; each group keeps a single DEFAULT
+  const sameGroup = (a: HlsMedia, b: HlsMedia): boolean =>
+    attr(a.attributes, 'TYPE') === attr(b.attributes, 'TYPE') && attr(a.attributes, 'GROUP-ID') === attr(b.attributes, 'GROUP-ID')
   for (const media of addition.media) {
     const uri = attr(media.attributes, 'URI')
     if (existing.media.some((m) => attr(m.attributes, 'URI') === uri)) continue
-    if (hasDefault(attr(media.attributes, 'TYPE') ?? '')) setAttr(media.attributes, 'DEFAULT', 'NO', false)
+    if (existing.media.some((m) => sameGroup(m, media) && attr(m.attributes, 'DEFAULT') === 'YES')) setAttr(media.attributes, 'DEFAULT', 'NO', false)
     existing.media.push(media)
   }
 
-  const existingAudioCodecs = new Set(existing.variants.flatMap((v) => codecsOf(v.attributes).filter((c) => !isVideoCodec(c))))
-  const allAudioCodecs = [...new Set([...existingAudioCodecs, ...newAudioCodecs])]
-  const groups = {
-    AUDIO: existing.variants.map((v) => attr(v.attributes, 'AUDIO')).find(Boolean),
-    SUBTITLES: existing.variants.map((v) => attr(v.attributes, 'SUBTITLES')).find(Boolean)
+  // Video renditions keep their attributes (first variant seen wins); a run without
+  // video yields audio-only variants that only tell which codec their group carries
+  const mediaUris = new Set(existing.media.map((m) => attr(m.attributes, 'URI')))
+  const renditions = new Map<string, HlsVariant>()
+  const groupCodecs = new Map<string, Set<string>>()
+  for (const variant of [...existing.variants, ...addition.variants]) {
+    const codecs = codecsOf(variant.attributes)
+    const group = attr(variant.attributes, 'AUDIO')
+    if (group) {
+      const set = groupCodecs.get(group) ?? new Set<string>()
+      for (const codec of codecs) if (!isVideoCodec(codec)) set.add(codec)
+      groupCodecs.set(group, set)
+    }
+    if (mediaUris.has(variant.uri) || !codecs.some(isVideoCodec)) continue
+    if (!renditions.has(variant.uri)) renditions.set(variant.uri, variant)
   }
-  if (!groups.AUDIO && existing.media.some((m) => attr(m.attributes, 'TYPE') === 'AUDIO')) groups.AUDIO = 'audio'
-  if (!groups.SUBTITLES && existing.media.some((m) => attr(m.attributes, 'TYPE') === 'SUBTITLES')) groups.SUBTITLES = 'subs'
 
-  for (const variant of videoVariants) {
-    if (existing.variants.some((v) => v.uri === variant.uri)) continue
-    existing.variants.push(variant)
+  const mediaOf = (type: string): HlsMedia[] => existing.media.filter((m) => attr(m.attributes, 'TYPE') === type)
+  const audioGroups = [...new Set(mediaOf('AUDIO').map((m) => attr(m.attributes, 'GROUP-ID') ?? ''))]
+  const subtitleGroup = mediaOf('SUBTITLES').map((m) => attr(m.attributes, 'GROUP-ID')).find(Boolean)
+
+  const measured = new Map<string, Promise<StreamBandwidth>>()
+  const bandwidth = (uri: string): Promise<StreamBandwidth> => {
+    if (!measured.has(uri)) measured.set(uri, bandwidthOf(uri))
+    return measured.get(uri)!
   }
-  for (const variant of existing.variants) {
-    const video = codecsOf(variant.attributes).filter(isVideoCodec)
-    setAttr(variant.attributes, 'CODECS', [...video, ...allAudioCodecs].join(','), true)
-    if (groups.AUDIO) setAttr(variant.attributes, 'AUDIO', groups.AUDIO, true)
-    if (groups.SUBTITLES) setAttr(variant.attributes, 'SUBTITLES', groups.SUBTITLES, true)
+  // A variant's bandwidth is its video plus the heaviest rendition of the group
+  const groupBandwidth = async (group: string): Promise<StreamBandwidth> => {
+    const members = mediaOf('AUDIO').filter((m) => attr(m.attributes, 'GROUP-ID') === group)
+    const values = await Promise.all(members.map((m) => bandwidth(attr(m.attributes, 'URI') ?? '')))
+    return { peak: Math.max(0, ...values.map((v) => v.peak)), average: Math.max(0, ...values.map((v) => v.average)) }
   }
+
+  const variants: HlsVariant[] = []
+  for (const [uri, template] of renditions) {
+    const video = await bandwidth(uri)
+    const videoCodecs = codecsOf(template.attributes).filter(isVideoCodec)
+    for (const group of audioGroups.length > 0 ? audioGroups : [undefined]) {
+      const audio = group === undefined ? { peak: 0, average: 0 } : await groupBandwidth(group)
+      const attributes = template.attributes.map((a) => ({ ...a }))
+      setAttr(attributes, 'BANDWIDTH', String(video.peak + audio.peak), false)
+      setAttr(attributes, 'AVERAGE-BANDWIDTH', String(video.average + audio.average), false)
+      setAttr(attributes, 'CODECS', [...videoCodecs, ...(group === undefined ? [] : groupCodecs.get(group) ?? [])].join(','), true)
+      if (group !== undefined) setAttr(attributes, 'AUDIO', group, true)
+      if (subtitleGroup) setAttr(attributes, 'SUBTITLES', subtitleGroup, true)
+      variants.push({ attributes, uri })
+    }
+  }
+  existing.variants = variants
 
   return serializeMaster(existing)
+}
+
+// Peak and average bitrate of a media playlist from its segments, the way the
+// packager computes them for the master (peak = fastest segment; the short tail
+// segment is left out of the peak so it cannot spike it)
+export async function measureBandwidth(playlistFile: string): Promise<StreamBandwidth> {
+  const dir = dirname(playlistFile)
+  const segments: { seconds: number; bytes: number }[] = []
+  let seconds: number | null = null
+  for (const raw of (await readFile(playlistFile, 'utf8')).split(/\r?\n/)) {
+    const line = raw.trim()
+    if (line.startsWith('#EXTINF:')) {
+      seconds = Number.parseFloat(line.slice('#EXTINF:'.length))
+    } else if (seconds !== null && line !== '' && !line.startsWith('#')) {
+      segments.push({ seconds, bytes: (await stat(join(dir, line))).size })
+      seconds = null
+    }
+  }
+  if (segments.length === 0) throw new Error(`La playlist no lista segmentos: ${playlistFile}`)
+
+  const bitrate = (s: { seconds: number; bytes: number }): number => (s.bytes * 8) / s.seconds
+  const typical = [...segments].sort((a, b) => a.seconds - b.seconds)[Math.floor(segments.length / 2)]!.seconds
+  const full = segments.filter((s) => s.seconds >= typical / 2)
+  const totalBytes = segments.reduce((sum, s) => sum + s.bytes, 0)
+  const totalSeconds = segments.reduce((sum, s) => sum + s.seconds, 0)
+  return {
+    peak: Math.round(Math.max(...(full.length > 0 ? full : segments).map(bitrate))),
+    average: Math.round((totalBytes * 8) / totalSeconds)
+  }
 }
 
 // ---------------------------------------------------------------- DASH MPD

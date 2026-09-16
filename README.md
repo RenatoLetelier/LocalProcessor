@@ -9,12 +9,16 @@ carpeta lista para streaming".
 - Escalera de calidades configurable (2160p / 1080p / 720p / 480p…) sin
   upscaling: cada calidad es una caja máxima y el video se escala para caber en
   ella conservando el aspect ratio.
-- Todas las pistas de audio y subtítulos del original se preservan: AAC/AC-3/E-AC-3
-  se copian, el resto (DTS, TrueHD, FLAC…) se transcodifica a AAC conservando los
-  canales; los subtítulos de texto se convierten a WebVTT. Los subtítulos quedan
-  desactivados por defecto salvo que el origen marque uno como *default* (solo se
-  respeta en MKV: en MP4 ese flag lo lleva casi siempre la primera pista y se
-  ignora); los forzados se señalan como tales en ambos manifiestos.
+- Todas las pistas de audio del original se preservan: AAC se copia; AC-3/E-AC-3
+  se copian y además se genera una versión AAC con los mismos canales (Chrome y
+  Firefox no decodifican Dolby); el resto (DTS, TrueHD, FLAC…) se transcodifica a
+  AAC conservando los canales. En HLS cada códec de audio va en su propio grupo,
+  con una variante por calidad y grupo, para que cada reproductor elija el que
+  sabe decodificar.
+- Los subtítulos de texto se convierten a WebVTT y quedan desactivados por defecto
+  salvo que el origen marque uno como *default* (solo se respeta en MKV: en MP4
+  ese flag lo lleva casi siempre la primera pista y se ignora); los forzados se
+  señalan como tales en ambos manifiestos.
 - Un solo set de segmentos CMAF (fMP4) sirve tanto al `master.m3u8` como al
   `manifest.mpd`.
 - Cola de trabajos persistente (SQLite), progreso en tiempo real y reanudación
