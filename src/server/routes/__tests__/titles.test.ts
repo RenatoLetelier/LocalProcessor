@@ -84,7 +84,10 @@ describe('POST /titles', () => {
       status: 'done',
       renditions: [{ label: '1080p' }, { label: '720p' }, { label: '480p' }],
       audio_tracks: [{ language: 'es' }, { language: 'en' }],
-      subtitle_tracks: [{ status: 'pending', requiere_ocr: true }],
+      subtitle_tracks: [
+        { status: 'pending', requiere_ocr: true },
+        { status: 'done', formato_salida: 'vtt' }
+      ],
       jobs: [{ id: job.id, status: 'done', progress: 100 }]
     })
     expect(existsSync(join(root, title.id, 'metadata.json'))).toBe(true)

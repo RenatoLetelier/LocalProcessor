@@ -8,10 +8,13 @@ import {
   MASTER_PLAYLIST,
   MEDIA_PLAYLIST,
   SEGMENT_TEMPLATE,
+  SUBTITLE_SEGMENT_TEMPLATE,
   audioDir,
   encodedAudioFile,
+  encodedSubtitleFile,
   encodedVideoFile,
-  renditionDir
+  renditionDir,
+  subtitleDir
 } from './layout'
 import type { Binaries, EncodePlan } from './types'
 
@@ -52,10 +55,31 @@ export function buildPackagerArgs(plan: EncodePlan, standards: Standard[]): stri
     )
   }
 
+  // Raw WebVTT segments: what HLS requires, and what dash.js / Shaka Player / ExoPlayer read as text/vtt
+  for (const subtitle of plan.subtitles) {
+    const dir = subtitleDir(subtitle)
+    args.push(
+      descriptor({
+        in: `${ENC_DIR}/${encodedSubtitleFile(subtitle.sourceIndex)}`,
+        stream: 'text',
+        segment_template: `${PKG_DIR}/${dir}/${SUBTITLE_SEGMENT_TEMPLATE}`,
+        playlist_name: `${dir}/${MEDIA_PLAYLIST}`,
+        hls_group_id: 'subs',
+        hls_name: subtitle.name,
+        language: subtitle.language,
+        ...(subtitle.forced ? { forced_subtitle: '1' } : {})
+      })
+    )
+  }
+
   args.push('--segment_duration', plan.actualSegmentSeconds.toFixed(6))
   // Marks DEFAULT=YES (HLS) / Role main (DASH) on the first track of this language
   const defaultAudio = plan.audio.find((a) => a.isDefault) ?? plan.audio[0]
   if (defaultAudio) args.push('--default_language', defaultAudio.language)
+  // Subtitles stay off unless the source flags one as default: --default_language
+  // would otherwise also mark the same-language subtitle DEFAULT=YES ("zxx" = no language)
+  const defaultSubtitle = plan.subtitles.find((s) => s.isDefault && !s.forced)
+  if (plan.subtitles.length > 0) args.push('--default_text_language', defaultSubtitle?.language ?? 'zxx')
   if (standards.includes('hls')) {
     args.push('--hls_master_playlist_output', `${PKG_DIR}/${MASTER_PLAYLIST}`, '--hls_playlist_type', 'VOD')
   }
@@ -96,7 +120,7 @@ export async function runPackager(
 async function countSegments(dir: string): Promise<number> {
   try {
     const entries = await readdir(dir, { recursive: true })
-    return entries.filter((name) => name.endsWith('.m4s')).length
+    return entries.filter((name) => name.endsWith('.m4s') || name.endsWith('.vtt')).length
   } catch {
     return 0
   }

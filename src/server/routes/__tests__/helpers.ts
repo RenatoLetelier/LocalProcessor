@@ -34,7 +34,10 @@ export const fakeSource = (path: string, over: Partial<SourceInfo['video']> = {}
     { index: 1, codec: 'aac', channels: 2, channelLayout: 'stereo', sampleRate: 48000, bitrate: 128000, language: 'spa', title: null, isDefault: true },
     { index: 2, codec: 'dts', channels: 6, channelLayout: '5.1', sampleRate: 48000, bitrate: null, language: 'eng', title: 'Comentarios', isDefault: false }
   ],
-  subtitles: [{ index: 3, codec: 'hdmv_pgs_subtitle', language: 'spa', title: null, isForced: false, isImage: true }]
+  subtitles: [
+    { index: 3, codec: 'hdmv_pgs_subtitle', language: 'spa', title: null, isForced: false, isDefault: false, isImage: true },
+    { index: 4, codec: 'subrip', language: 'eng', title: null, isForced: true, isDefault: false, isImage: false }
+  ]
 })
 
 export const fakeProbe: Prober = async (_binaries, path) => fakeSource(path)

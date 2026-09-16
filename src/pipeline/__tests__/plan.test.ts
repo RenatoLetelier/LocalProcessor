@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG } from '@shared/config'
-import { aacBitrateKbps, fitInBox, gopFrames, planAudio, planEncode, wouldUpscale } from '../plan'
-import type { SourceAudio, SourceInfo } from '../types'
+import { aacBitrateKbps, fitInBox, gopFrames, planAudio, planEncode, planSubtitle, wouldUpscale } from '../plan'
+import type { SourceAudio, SourceInfo, SourceSubtitle } from '../types'
 
 const audio = (over: Partial<SourceAudio>): SourceAudio => ({
   index: 1,
@@ -101,13 +101,14 @@ describe('planEncode', () => {
     expect(plan.actualSegmentSeconds).toBeCloseTo(6.006, 3)
   })
 
-  it('skips unknown labels and reports subtitles as pending', () => {
+  it('skips unknown labels and plans text subtitles', () => {
     const plan = planEncode(
-      source({}, { subtitles: [{ index: 3, codec: 'subrip', language: 'spa', title: null, isForced: false, isImage: false }] }),
+      source({}, { subtitles: [{ index: 3, codec: 'subrip', language: 'spa', title: null, isForced: false, isDefault: false, isImage: false }] }),
       { ...options, qualities: ['900p', '720p'] }
     )
     expect(plan.renditions.map((r) => r.label)).toEqual(['720p'])
-    expect(plan.skipped.map((s) => s.kind)).toEqual(['rendition', 'subtitle'])
+    expect(plan.skipped.map((s) => s.kind)).toEqual(['rendition'])
+    expect(plan.subtitles).toEqual([{ sourceIndex: 3, language: 'es', name: 'Español', forced: false, isDefault: false }])
   })
 })
 
@@ -135,6 +136,42 @@ describe('planEncode native fallback', () => {
     const rungs = { ...DEFAULT_CONFIG.rungs, '360p': { width: 1280, height: 720, maxBitrateKbps: 2000 } }
     const plan = planEncode(source({ width: 640, height: 360, displayWidth: 640, displayHeight: 360 }), { ...options, rungs, qualities: ['360p'] })
     expect(plan.renditions[0]?.label).toBe('360p-native')
+  })
+})
+
+describe('planSubtitle', () => {
+  const subtitle = (over: Partial<SourceSubtitle>): SourceSubtitle => ({
+    index: 5,
+    codec: 'subrip',
+    language: 'spa',
+    title: null,
+    isForced: false,
+    isDefault: false,
+    isImage: false,
+    ...over
+  })
+
+  it('plans text tracks as WebVTT keeping forced/default flags and the display name', () => {
+    expect(planSubtitle(subtitle({ codec: 'ass', isForced: true, isDefault: true, title: 'Forzados' }))).toEqual({
+      sourceIndex: 5,
+      language: 'es',
+      name: 'Forzados',
+      forced: true,
+      isDefault: true
+    })
+    expect(planSubtitle(subtitle({ codec: 'mov_text', language: 'eng' }))).toMatchObject({ language: 'en', name: 'English' })
+  })
+
+  it('reports image subtitles as needing OCR instead of dropping them', () => {
+    expect(planSubtitle(subtitle({ codec: 'hdmv_pgs_subtitle', isImage: true }))).toEqual({
+      kind: 'subtitle',
+      id: '5',
+      reason: 'subtítulo de imagen (hdmv_pgs_subtitle): requiere OCR, no incluido'
+    })
+  })
+
+  it('reports unsupported text formats', () => {
+    expect(planSubtitle(subtitle({ codec: 'dvb_teletext' }))).toMatchObject({ kind: 'subtitle', reason: expect.stringContaining('no soportado') })
   })
 })
 

@@ -244,9 +244,16 @@ function TitleView({ title, onBack }: { title: Title; onBack: () => void }) {
                         <td>
                           {s.formato_origen}
                           {s.formato_salida ? ` → ${s.formato_salida}` : ''}
-                          {s.requiere_ocr && <div className="table__note">imagen (requiere OCR)</div>}
                         </td>
-                        <td className="muted">{s.status === 'pending' ? 'pendiente (fase 8)' : s.status}</td>
+                        <td className="muted">
+                          {s.status === 'done'
+                            ? 'incluido'
+                            : s.requiere_ocr
+                              ? 'no incluido: subtítulo de imagen (requiere OCR)'
+                              : s.status === 'error'
+                                ? 'no incluido: formato no soportado'
+                                : s.status}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -1,6 +1,7 @@
 import type { PipelineResult } from '@pipeline/types'
 import { toBcp47 } from '@pipeline/lang'
 import { VIDEO_CODEC_NAME } from '@pipeline/metadata'
+import { SUBTITLE_FORMAT } from '@pipeline/layout'
 import type { Repositories } from '../db/repositories'
 import { withTransaction } from '../db/transaction'
 
@@ -41,17 +42,19 @@ export function recordResult(repos: Repositories, db: Parameters<typeof withTran
       })
     }
 
-    // Subtitles are not produced yet (fase 8): recorded as pending so nothing is lost silently
+    // Every source subtitle gets a row: included ones are done, image subtitles stay
+    // pending (they would need OCR) and anything else that could not be converted is an error
     for (const subtitle of source.subtitles) {
+      const included = plan.subtitles.some((s) => s.sourceIndex === subtitle.index)
       repos.subtitleTracks.create({
         title_id: titleId,
         source_index: subtitle.index,
         language: toBcp47(subtitle.language),
         title: subtitle.title,
         formato_origen: subtitle.codec,
-        formato_salida: null,
+        formato_salida: included ? SUBTITLE_FORMAT : null,
         requiere_ocr: subtitle.isImage,
-        status: 'pending'
+        status: included ? 'done' : subtitle.isImage ? 'pending' : 'error'
       })
     }
 

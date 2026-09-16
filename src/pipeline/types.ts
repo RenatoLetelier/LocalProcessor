@@ -43,6 +43,7 @@ export interface SourceSubtitle {
   language: string | null
   title: string | null
   isForced: boolean
+  isDefault: boolean
   isImage: boolean
 }
 
@@ -79,6 +80,14 @@ export interface AudioPlan {
   isDefault: boolean
 }
 
+export interface SubtitlePlan {
+  sourceIndex: number
+  language: string
+  name: string
+  forced: boolean
+  isDefault: boolean
+}
+
 export interface SkippedItem {
   kind: 'rendition' | 'audio' | 'subtitle'
   id: string
@@ -92,6 +101,8 @@ export interface EncodePlan {
   actualSegmentSeconds: number
   renditions: RenditionPlan[]
   audio: AudioPlan[]
+  // Text subtitles converted to WebVTT; image subtitles end up in `skipped`
+  subtitles: SubtitlePlan[]
   skipped: SkippedItem[]
 }
 
@@ -181,5 +192,6 @@ export interface MetadataSubtitleTrack {
   language: string
   name: string
   format: string
+  forced: boolean
   path: string
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFfmpegArgs, parseProgressLine } from '../ffmpeg'
+import { buildFfmpegArgs, buildSubtitleArgs, parseProgressLine } from '../ffmpeg'
 import { buildPackagerArgs } from '../packager'
 import { languageDisplayName, toBcp47 } from '../lang'
 import type { EncodePlan, SourceInfo } from '../types'
@@ -33,6 +33,10 @@ const plan: EncodePlan = {
   audio: [
     { sourceIndex: 1, action: 'copy', outputCodec: 'aac', channels: 2, bitrateKbps: null, language: 'es', name: 'Español', isDefault: false },
     { sourceIndex: 2, action: 'transcode', outputCodec: 'aac', channels: 6, bitrateKbps: 384, language: 'en', name: 'Director, comments', isDefault: true }
+  ],
+  subtitles: [
+    { sourceIndex: 3, language: 'es', name: 'Español', forced: false, isDefault: false },
+    { sourceIndex: 4, language: 'es', name: 'Forzados', forced: true, isDefault: false }
   ],
   skipped: []
 }
@@ -91,6 +95,14 @@ describe('buildFfmpegArgs', () => {
   })
 })
 
+describe('buildSubtitleArgs', () => {
+  it('converts one text track to WebVTT with a standalone ffmpeg run', () => {
+    const { args, file } = buildSubtitleArgs(source, plan.subtitles[0]!, 'C:/work/enc')
+    expect(file).toMatch(/sub_3\.vtt$/)
+    expect(args.join(' ')).toContain('-i C:/in/movie.mkv -map 0:3 -c:s webvtt -f webvtt')
+  })
+})
+
 describe('parseProgressLine', () => {
   it('converts out_time_us into a percentage of the source duration', () => {
     expect(parseProgressLine('out_time_us=50000000', 100)).toEqual({ outTimeSeconds: 50, percent: 50 })
@@ -114,6 +126,22 @@ describe('buildPackagerArgs', () => {
 
   it('strips descriptor separators from track names', () => {
     expect(args[2]).toContain('hls_name=Director  comments,language=en')
+  })
+
+  it('packages text tracks as raw WebVTT segments, flagging forced ones', () => {
+    expect(args[3]).toBe(
+      'in=enc/sub_3.vtt,stream=text,segment_template=pkg/subs/3_es/seg_$Number%05d$.vtt,playlist_name=subs/3_es/playlist.m3u8,hls_group_id=subs,hls_name=Español,language=es'
+    )
+    expect(args[4]).toBe(
+      'in=enc/sub_4.vtt,stream=text,segment_template=pkg/subs/4_es/seg_$Number%05d$.vtt,playlist_name=subs/4_es/playlist.m3u8,hls_group_id=subs,hls_name=Forzados,language=es,forced_subtitle=1'
+    )
+  })
+
+  it('keeps subtitles off by default unless the source flags one', () => {
+    expect(window(args, '--default_text_language')).toEqual(['zxx'])
+    const flagged: EncodePlan = { ...plan, subtitles: [{ ...plan.subtitles[0]!, isDefault: true }] }
+    expect(window(buildPackagerArgs(flagged, ['hls']), '--default_text_language')).toEqual(['es'])
+    expect(buildPackagerArgs({ ...plan, subtitles: [] }, ['hls'])).not.toContain('--default_text_language')
   })
 
   it('passes the exact segment length, default language and only the requested manifests', () => {

@@ -1,12 +1,26 @@
 import type { Rung } from '@shared/config'
 import { languageDisplayName, toBcp47 } from './lang'
 import { toEven } from './probe'
-import type { AudioPlan, EncodePlan, Fraction, PlanOptions, RenditionPlan, SkippedItem, SourceAudio, SourceInfo } from './types'
+import type {
+  AudioPlan,
+  EncodePlan,
+  Fraction,
+  PlanOptions,
+  RenditionPlan,
+  SkippedItem,
+  SourceAudio,
+  SourceInfo,
+  SourceSubtitle,
+  SubtitlePlan
+} from './types'
 
 // Audio codecs browsers and HLS/DASH accept as-is inside fMP4
 export const STREAMABLE_AUDIO_CODECS = new Set(['aac', 'ac3', 'eac3'])
 export const TRANSCODE_AUDIO_CODEC = 'aac'
 const MAX_AAC_CHANNELS = 8
+
+// Subtitle codecs ffmpeg can turn into WebVTT
+export const TEXT_SUBTITLE_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'webvtt', 'mov_text', 'text'])
 
 export function gopFrames(segmentDurationSeconds: number, fps: Fraction): number {
   return Math.max(1, Math.round((segmentDurationSeconds * fps.num) / fps.den))
@@ -62,8 +76,11 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
   }
 
   const audio = source.audio.map(planAudio)
+  const subtitles: SubtitlePlan[] = []
   for (const subtitle of source.subtitles) {
-    skipped.push({ kind: 'subtitle', id: String(subtitle.index), reason: 'subtítulos: pendiente (fase 8)' })
+    const planned = planSubtitle(subtitle)
+    if ('reason' in planned) skipped.push(planned)
+    else subtitles.push(planned)
   }
 
   return {
@@ -72,7 +89,27 @@ export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan
     actualSegmentSeconds: (gop * fps.den) / fps.num,
     renditions,
     audio,
+    subtitles,
     skipped
+  }
+}
+
+// Image subtitles (PGS, VobSub, DVB) would need OCR: they are reported, never silently dropped
+export function planSubtitle(subtitle: SourceSubtitle): SubtitlePlan | SkippedItem {
+  const id = String(subtitle.index)
+  if (subtitle.isImage) {
+    return { kind: 'subtitle', id, reason: `subtítulo de imagen (${subtitle.codec}): requiere OCR, no incluido` }
+  }
+  if (!TEXT_SUBTITLE_CODECS.has(subtitle.codec)) {
+    return { kind: 'subtitle', id, reason: `formato de subtítulo no soportado (${subtitle.codec})` }
+  }
+  const language = toBcp47(subtitle.language)
+  return {
+    sourceIndex: subtitle.index,
+    language,
+    name: subtitle.title ?? languageDisplayName(language),
+    forced: subtitle.isForced,
+    isDefault: subtitle.isDefault
   }
 }
 

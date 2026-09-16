@@ -90,7 +90,8 @@ describe('JobRunner', () => {
       { source_index: 2, language: 'en', codec_origen: 'dts', codec_salida: 'aac', channels: 6, title: 'Comentarios', status: 'done' }
     ])
     expect(db.repos.subtitleTracks.listByTitle(a.titleId)).toMatchObject([
-      { source_index: 3, formato_origen: 'hdmv_pgs_subtitle', formato_salida: null, requiere_ocr: true, status: 'pending' }
+      { source_index: 3, formato_origen: 'hdmv_pgs_subtitle', formato_salida: null, requiere_ocr: true, status: 'pending' },
+      { source_index: 4, language: 'en', formato_origen: 'subrip', formato_salida: 'vtt', requiere_ocr: false, status: 'done' }
     ])
 
     const progress = received.filter((e) => e.type === 'job.progress' && e.job.id === a.jobId)

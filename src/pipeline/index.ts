@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, rename, rm, rmdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { buildFfmpegArgs, runFfmpeg } from './ffmpeg'
+import { buildFfmpegArgs, extractSubtitles, runFfmpeg } from './ffmpeg'
 import { METADATA_FILE, WORK_DIR, audioDir, renditionDir } from './layout'
 import { buildMetadata, writeJsonAtomic } from './metadata'
 import { ENC_DIR, PKG_DIR, buildPackagerArgs, runPackager } from './packager'
@@ -76,6 +76,11 @@ export async function processTitle(
     assertPathLengths(workDir, plan)
 
     report('encode', 0)
+    const subtitles = await extractSubtitles(binaries, source, plan.subtitles, encDir, { onLog: hooks.onLog, signal: hooks.signal })
+    plan.subtitles = subtitles.extracted
+    plan.skipped.push(...subtitles.failed)
+    for (const item of subtitles.failed) hooks.onLog?.(`omitido subtitle ${item.id}: ${item.reason}`)
+
     const { args: ffmpegArgs, outputs } = buildFfmpegArgs(source, plan, encDir, input.videoEncoder)
     hooks.onLog?.(`ffmpeg ${ffmpegArgs.join(' ')}`)
     await runFfmpeg(binaries, ffmpegArgs, source.durationSeconds, {
@@ -88,7 +93,7 @@ export async function processTitle(
     report('package', 0)
     const packagerArgs = buildPackagerArgs(plan, input.standards)
     hooks.onLog?.(`packager ${packagerArgs.join(' ')}`)
-    const streams = plan.renditions.length + plan.audio.length
+    const streams = plan.renditions.length + plan.audio.length + plan.subtitles.length
     const expectedSegments = Math.ceil(source.durationSeconds / plan.actualSegmentSeconds) * streams
     await runPackager(binaries, packagerArgs, workDir, expectedSegments, {
       onProgress: (percent) => report('package', percent),

@@ -1,5 +1,7 @@
-// Synthetic test movie: colour bars, AAC stereo tagged Spanish, DTS 5.1 tagged
-// English (exercises the transcode path) and an SRT subtitle. Dev/test only.
+// Synthetic test movie: colour bars; AAC stereo (spa), DTS 5.1 (eng, transcode
+// path) and AC-3 stereo (fra, copy path); SRT (spa) and forced ASS (eng)
+// subtitles. ffmpeg cannot synthesise image subtitles, so PGS/VobSub handling is
+// covered by unit tests only. Dev/test only.
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -35,7 +37,9 @@ export function generateSample(ffmpeg: string, opts: SampleOptions): string {
         '-map', '0:v', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
         '-map', '1:a', '-c:a:0', 'aac', '-ac:a:0', '2', '-b:a:0', '128k', '-metadata:s:a:0', 'language=spa', '-metadata:s:a:0', 'title=Español',
         '-map', '2:a', '-c:a:1', 'dca', '-strict', '-2', '-ac:a:1', '6', '-b:a:1', '768k', '-metadata:s:a:1', 'language=eng',
-        '-map', '3:s', '-c:s', 'srt', '-metadata:s:s:0', 'language=spa',
+        '-map', '2:a', '-c:a:2', 'ac3', '-ac:a:2', '2', '-b:a:2', '192k', '-metadata:s:a:2', 'language=fra',
+        '-map', '3:s', '-c:s:0', 'srt', '-metadata:s:s:0', 'language=spa',
+        '-map', '3:s', '-c:s:1', 'ass', '-metadata:s:s:1', 'language=eng', '-metadata:s:s:1', 'title=Forced', '-disposition:s:1', 'forced',
         out
       ],
       { stdio: 'inherit', windowsHide: true }

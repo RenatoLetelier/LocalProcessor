@@ -1,6 +1,6 @@
 import { rename, stat, writeFile } from 'node:fs/promises'
 import type { Standard } from '@shared/config'
-import { DASH_MANIFEST, MASTER_PLAYLIST, audioDir, audioTrackId, renditionDir } from './layout'
+import { DASH_MANIFEST, MASTER_PLAYLIST, SUBTITLE_FORMAT, audioDir, audioTrackId, renditionDir, subtitleDir, subtitleTrackId } from './layout'
 import type { EncodeOutputs } from './ffmpeg'
 import type { EncodePlan, SourceInfo, TitleMetadata } from './types'
 
@@ -54,7 +54,14 @@ export async function buildMetadata(input: MetadataInput): Promise<TitleMetadata
       channels: audio.channels,
       path: audioDir(audio)
     })),
-    subtitleTracks: [],
+    subtitleTracks: plan.subtitles.map((subtitle) => ({
+      id: subtitleTrackId(subtitle),
+      language: subtitle.language,
+      name: subtitle.name,
+      format: SUBTITLE_FORMAT,
+      forced: subtitle.forced,
+      path: subtitleDir(subtitle)
+    })),
     updatedAt: new Date().toISOString()
   }
 }

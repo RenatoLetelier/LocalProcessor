@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG } from '@shared/config'
 import { ProcessError, processTitle, resolveBinaries, type Binaries, type ProgressEvent } from '..'
 import { run } from '../exec'
+import { extractSubtitles } from '../ffmpeg'
+import { probeSource } from '../probe'
 import { generateSample } from '../testing/sample'
 
 let binaries: Binaries | undefined
@@ -59,7 +61,11 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
         'video/720p/seg_00003.m4s',
         'video/480p/playlist.m3u8',
         'audio/1_es_aac/playlist.m3u8',
-        'audio/2_en_aac/playlist.m3u8'
+        'audio/2_en_aac/playlist.m3u8',
+        'audio/3_fr_ac3/playlist.m3u8',
+        'subs/4_es/playlist.m3u8',
+        'subs/4_es/seg_00001.vtt',
+        'subs/5_en/playlist.m3u8'
       ])
     )
     expect(existsSync(join(root, 'out', '.tmp'))).toBe(false)
@@ -73,11 +79,31 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(playlist).toContain('#EXT-X-ENDLIST')
   })
 
-  it('exposes both audio tracks in the master playlist with language, name and channels', () => {
+  it('exposes every audio track in the master playlist with language, name and channels', () => {
     const master = readFileSync(join(outputFolder, 'master.m3u8'), 'utf8')
     expect(master).toContain('LANGUAGE="es",NAME="Español",DEFAULT=YES')
     expect(master).toContain('LANGUAGE="en",NAME="English"')
     expect(master).toContain('CHANNELS="6"')
+    // AC-3 is copied, not re-encoded
+    expect(master).toContain('URI="audio/3_fr_ac3/playlist.m3u8",GROUP-ID="audio",LANGUAGE="fr",NAME="Français"')
+    expect(master).toMatch(/CODECS="[^"]*ac-3/)
+  })
+
+  it('converts text subtitles to WebVTT for both manifests, forced flag included, off by default', () => {
+    const master = readFileSync(join(outputFolder, 'master.m3u8'), 'utf8')
+    expect(master).toContain('TYPE=SUBTITLES,URI="subs/4_es/playlist.m3u8",GROUP-ID="subs",LANGUAGE="es",NAME="Español",DEFAULT=NO')
+    expect(master).toContain('TYPE=SUBTITLES,URI="subs/5_en/playlist.m3u8",GROUP-ID="subs",LANGUAGE="en",NAME="Forced",DEFAULT=NO,AUTOSELECT=YES,FORCED=YES')
+    expect(master).toMatch(/SUBTITLES="subs"/)
+
+    const mpd = readFileSync(join(outputFolder, 'manifest.mpd'), 'utf8')
+    expect(mpd).toContain('contentType="text" lang="es"')
+    expect(mpd).toContain('<Role schemeIdUri="urn:mpeg:dash:role:2011" value="forced-subtitle"/>')
+    expect(mpd).toContain('mimeType="text/vtt"')
+    expect(mpd).toContain('media="subs/4_es/seg_$Number%05d$.vtt"')
+
+    const cue = readFileSync(join(outputFolder, 'subs/4_es/seg_00001.vtt'), 'utf8')
+    expect(cue).toMatch(/^WEBVTT/)
+    expect(cue).toContain('Primer subtítulo')
   })
 
   it('describes the same segments in a static DASH manifest', () => {
@@ -90,9 +116,9 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(mpd).toContain('lang="es"')
     expect(mpd).toContain('<Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>')
     expect(mpd).toContain('audio_channel_configuration:2011" value="6"')
-    // One set of segments serves both manifests: every .m4s on disk is listed by exactly one HLS media playlist
+    // One set of segments serves both manifests: every media/text segment on disk is listed by exactly one HLS media playlist
     const files = readdirSync(outputFolder, { recursive: true }).map(String)
-    const segments = files.filter((f) => f.endsWith('.m4s'))
+    const segments = files.filter((f) => f.endsWith('.m4s') || f.endsWith('.vtt'))
     const listed = files
       .filter((f) => f.endsWith('playlist.m3u8'))
       .reduce((sum, f) => sum + (readFileSync(join(outputFolder, f), 'utf8').match(/#EXTINF/g)?.length ?? 0), 0)
@@ -114,9 +140,13 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
       ],
       audioTracks: [
         { id: '1_es_aac', language: 'es', codec: 'aac', channels: 2, path: 'audio/1_es_aac' },
-        { id: '2_en_aac', language: 'en', codec: 'aac', channels: 6, path: 'audio/2_en_aac' }
+        { id: '2_en_aac', language: 'en', codec: 'aac', channels: 6, path: 'audio/2_en_aac' },
+        { id: '3_fr_ac3', language: 'fr', codec: 'ac3', channels: 2, path: 'audio/3_fr_ac3' }
       ],
-      subtitleTracks: []
+      subtitleTracks: [
+        { id: '4_es', language: 'es', name: 'Español', format: 'vtt', forced: false, path: 'subs/4_es' },
+        { id: '5_en', language: 'en', name: 'Forced', format: 'vtt', forced: true, path: 'subs/5_en' }
+      ]
     })
     expect(metadata.durationSeconds).toBeCloseTo(6, 0)
     expect(metadata.segmentDurationSeconds).toBeCloseTo(2.002, 3)
@@ -142,6 +172,23 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     expect(result.plan.renditions).toEqual([expect.objectContaining({ label: '180p', width: 320, height: 180, nativeFallback: true })])
     expect(existsSync(join(result.outputFolder, 'video/180p/playlist.m3u8'))).toBe(true)
   }, 60_000)
+
+  it('skips a subtitle ffmpeg cannot convert instead of failing the whole job', async () => {
+    const source = await probeSource(binaries!, join(root, 'sample.mkv'))
+    const result = await extractSubtitles(
+      binaries!,
+      source,
+      [
+        { sourceIndex: 4, language: 'es', name: 'Español', forced: false, isDefault: false },
+        { sourceIndex: 99, language: 'xx', name: 'Fantasma', forced: false, isDefault: false }
+      ],
+      root,
+      {}
+    )
+    expect(result.extracted.map((s) => s.sourceIndex)).toEqual([4])
+    expect(result.failed).toEqual([{ kind: 'subtitle', id: '99', reason: expect.stringContaining('no se pudo convertir a WebVTT') }])
+    expect(existsSync(join(root, 'sub_4.vtt'))).toBe(true)
+  })
 
   it('leaves nothing behind when a run fails', async () => {
     await expect(
@@ -173,6 +220,6 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
     const percents = events.map((e) => e.percent)
     expect(percents.every((p, i) => i === 0 || p >= percents[i - 1]!)).toBe(true)
     expect(percents.at(-1)).toBe(100)
-    expect(logs.some((l) => l.includes('omitido subtitle 3'))).toBe(true)
+    expect(logs.some((l) => l.includes('omitido rendition 2160p'))).toBe(true)
   })
 })

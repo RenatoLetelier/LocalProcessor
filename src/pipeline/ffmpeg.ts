@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { run } from './exec'
-import { encodedAudioFile, encodedVideoFile } from './layout'
-import type { AudioPlan, Binaries, EncodePlan, RenditionPlan, SourceInfo, VideoEncoderOptions } from './types'
+import { encodedAudioFile, encodedSubtitleFile, encodedVideoFile } from './layout'
+import type { AudioPlan, Binaries, EncodePlan, RenditionPlan, SkippedItem, SourceInfo, SubtitlePlan, VideoEncoderOptions } from './types'
 
 export const DEFAULT_VIDEO_ENCODER: Required<VideoEncoderOptions> = { preset: 'medium', crf: 20 }
 
@@ -106,4 +106,44 @@ export async function runFfmpeg(
     },
     onStderrLine: hooks.onLog
   })
+}
+
+export function buildSubtitleArgs(source: SourceInfo, subtitle: SubtitlePlan, encDir: string): { args: string[]; file: string } {
+  const file = join(encDir, encodedSubtitleFile(subtitle.sourceIndex))
+  return {
+    args: ['-hide_banner', '-nostdin', '-y', '-loglevel', 'error', '-i', source.path, '-map', `0:${subtitle.sourceIndex}`, '-c:s', 'webvtt', '-f', 'webvtt', file],
+    file
+  }
+}
+
+export interface SubtitleExtraction {
+  extracted: SubtitlePlan[]
+  files: { sourceIndex: number; file: string }[]
+  failed: SkippedItem[]
+}
+
+// Text subtitles are cheap: converted one by one before the video encode, and a
+// track ffmpeg cannot convert is reported as skipped instead of failing the job.
+export async function extractSubtitles(
+  binaries: Binaries,
+  source: SourceInfo,
+  subtitles: SubtitlePlan[],
+  encDir: string,
+  hooks: { onLog?: (line: string) => void; signal?: AbortSignal }
+): Promise<SubtitleExtraction> {
+  const result: SubtitleExtraction = { extracted: [], files: [], failed: [] }
+  for (const subtitle of subtitles) {
+    const { args, file } = buildSubtitleArgs(source, subtitle, encDir)
+    hooks.onLog?.(`ffmpeg ${args.join(' ')}`)
+    try {
+      await run(binaries.ffmpeg, args, { signal: hooks.signal, onStderrLine: hooks.onLog })
+      result.extracted.push(subtitle)
+      result.files.push({ sourceIndex: subtitle.sourceIndex, file })
+    } catch (error) {
+      if (hooks.signal?.aborted) throw error
+      const message = error instanceof Error ? error.message.split('\n')[0] : String(error)
+      result.failed.push({ kind: 'subtitle', id: String(subtitle.sourceIndex), reason: `no se pudo convertir a WebVTT: ${message}` })
+    }
+  }
+  return result
 }

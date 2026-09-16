@@ -148,6 +148,7 @@ function parseSubtitle(stream: FfprobeStream): SourceSubtitle {
     language: normalizeTag(stream.tags?.language),
     title: normalizeTag(stream.tags?.title),
     isForced: stream.disposition?.forced === 1,
+    isDefault: stream.disposition?.default === 1,
     isImage: IMAGE_SUBTITLE_CODECS.has(codec)
   }
 }
