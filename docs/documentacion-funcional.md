@@ -24,7 +24,7 @@ No es un reproductor ni una plataforma de streaming en sí mismo — es el motor
 
 ### 3.2 Ingesta de contenido
 - Selector de archivo(s) local(es) desde la UI (uno o varios a la vez).
-- API local (HTTP, en `127.0.0.1`) para que otros programas puedan enviar un archivo o una ruta local y encolarlo para procesamiento, sin pasar por la UI.
+- API local (HTTP, en `127.0.0.1`) para que otros programas puedan enviar un archivo o una ruta local y encolarlo para procesamiento, sin pasar por la UI. Opcionalmente puede habilitarse el acceso desde otras máquinas de la red local, protegido con un token que genera la aplicación.
 
 ### 3.3 Configuración de procesado
 - Selección del estándar de salida: HLS, DASH, o ambos a la vez.

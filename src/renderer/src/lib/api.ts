@@ -39,6 +39,7 @@ export const api = {
   system: () => request<SystemInfo>('/system'),
   getConfig: () => request<AppConfig>('/config'),
   updateConfig: (patch: Partial<AppConfig>) => request<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(patch) }),
+  regenerateApiToken: () => request<AppConfig>('/config/api-token', { method: 'POST' }),
   listTitles: () => request<Title[]>('/titles'),
   getTitle: (id: string) => request<TitleDetail>(`/titles/${id}`),
   getTitleFiles: (id: string) => request<TitleFilesResponse>(`/titles/${id}/files`),

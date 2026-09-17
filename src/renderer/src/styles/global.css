@@ -994,3 +994,8 @@ select.input {
 .api-form label {
   color: var(--panel-fg-muted);
 }
+
+.docs select.input {
+  width: auto;
+  min-width: 280px;
+}

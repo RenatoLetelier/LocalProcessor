@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import websocket from '@fastify/websocket'
 import type { ServerContext } from './context'
+import { checkAccess } from './auth'
 import { HttpError } from './errors'
 import { healthRoutes } from './routes/health'
 import { configRoutes } from './routes/config'
@@ -25,6 +26,8 @@ export interface ServerOptions {
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
   501: 'Not Implemented'
@@ -60,6 +63,30 @@ export async function createServer(opts: ServerOptions): Promise<FastifyInstance
   await app.register(multipart, { limits: { fileSize: Number.MAX_SAFE_INTEGER, files: 1 } })
   await app.register(websocket)
 
+  // Non-loopback callers exist only while LAN access is enabled, and must present the token
+  app.addHook('onRequest', async (request, reply) => {
+    const header = (name: string): string | undefined => {
+      const value = request.headers[name]
+      return Array.isArray(value) ? value[0] : value
+    }
+    const decision = checkAccess(
+      {
+        ip: request.ip,
+        method: request.method,
+        authorization: header('authorization'),
+        apiKey: header('x-api-key'),
+        upgrade: header('upgrade'),
+        queryToken: stringParam((request.query as Record<string, unknown> | undefined)?.token)
+      },
+      opts.context.repos.settings.getConfig()
+    )
+    if (!decision.ok) {
+      return reply
+        .code(decision.statusCode)
+        .send({ statusCode: decision.statusCode, error: STATUS_TEXT[decision.statusCode], message: decision.message })
+    }
+  })
+
   await app.register(healthRoutes, { version: opts.version })
   await app.register(configRoutes, { repos: opts.context.repos, events: opts.context.events })
   await app.register(titlesRoutes, { context: opts.context })
@@ -73,4 +100,8 @@ export async function startServer(opts: ServerOptions): Promise<FastifyInstance>
   const app = await createServer(opts)
   await app.listen({ host: opts.host, port: opts.port })
   return app
+}
+
+function stringParam(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
 }

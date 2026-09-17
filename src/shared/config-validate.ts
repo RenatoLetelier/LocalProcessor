@@ -38,6 +38,11 @@ export function validateConfig(config: AppConfig): string[] {
     problems.push('maxConcurrentJobs: debe ser "auto" o un entero entre 1 y 16')
   }
 
+  if (config.apiAccess !== 'local' && config.apiAccess !== 'lan') problems.push('apiAccess: debe ser "local" o "lan"')
+  if (config.apiToken !== null && (typeof config.apiToken !== 'string' || config.apiToken.length === 0)) {
+    problems.push('apiToken: debe ser null o un texto no vacío')
+  }
+
   const seconds = config.segmentDurationSeconds
   if (!Number.isInteger(seconds) || seconds < SEGMENT_DURATION_RANGE.min || seconds > SEGMENT_DURATION_RANGE.max) {
     problems.push(

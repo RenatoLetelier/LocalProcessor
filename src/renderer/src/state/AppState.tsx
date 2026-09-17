@@ -16,6 +16,7 @@ export interface AppState {
   jobs: Job[]
   reload: () => Promise<void>
   saveConfig: (patch: Partial<AppConfig>) => Promise<AppConfig>
+  regenerateApiToken: () => Promise<AppConfig>
   enqueue: (sourcePath: string, name?: string) => Promise<CreateTitleResponse>
   cancelJob: (id: string) => Promise<void>
   deleteTitle: (id: string) => Promise<void>
@@ -117,6 +118,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return updated
   }, [])
 
+  const regenerateApiToken = useCallback(async () => {
+    const updated = await api.regenerateApiToken()
+    setConfig(updated)
+    return updated
+  }, [])
+
   const enqueue = useCallback(async (sourcePath: string, name?: string) => {
     const created = await api.createTitle(sourcePath, name)
     setTitles((list) => upsert(list, created.title))
@@ -136,8 +143,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AppState>(
-    () => ({ connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, enqueue, cancelJob, deleteTitle }),
-    [connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, enqueue, cancelJob, deleteTitle]
+    () => ({ connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, regenerateApiToken, enqueue, cancelJob, deleteTitle }),
+    [connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, regenerateApiToken, enqueue, cancelJob, deleteTitle]
   )
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>

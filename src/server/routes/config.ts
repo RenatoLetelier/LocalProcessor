@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { AppConfig } from '@shared/config'
 import { SEGMENT_DURATION_RANGE, validateConfig } from '@shared/config-validate'
+import { generateApiToken } from '../auth'
 import type { Repositories } from '../db/repositories'
 import type { ServerEvents } from '../jobs/events'
 
@@ -31,7 +32,9 @@ const configPatchSchema = {
     },
     segmentDurationSeconds: { type: 'integer', minimum: SEGMENT_DURATION_RANGE.min, maximum: SEGMENT_DURATION_RANGE.max },
     encoder: { type: 'string', enum: ['auto', 'software'] },
-    maxConcurrentJobs: { anyOf: [{ type: 'string', enum: ['auto'] }, { type: 'integer', minimum: 1, maximum: 16 }] }
+    maxConcurrentJobs: { anyOf: [{ type: 'string', enum: ['auto'] }, { type: 'integer', minimum: 1, maximum: 16 }] },
+    // apiToken is deliberately absent: the app generates it (POST /config/api-token)
+    apiAccess: { type: 'string', enum: ['local', 'lan'] }
   }
 } as const
 
@@ -54,7 +57,16 @@ export const configRoutes: FastifyPluginAsync<{ repos: Repositories; events?: Se
       })
     }
 
+    // The first time LAN access is enabled the token is minted along with it
+    if (merged.apiAccess === 'lan' && !merged.apiToken) patch.apiToken = generateApiToken()
     const updated = repos.settings.updateConfig(patch)
+    events?.emit({ type: 'config.updated', config: updated })
+    return updated
+  })
+
+  // Replaces the token; whoever holds the old one loses access immediately
+  app.post('/config/api-token', async (): Promise<AppConfig> => {
+    const updated = repos.settings.updateConfig({ apiToken: generateApiToken() })
     events?.emit({ type: 'config.updated', config: updated })
     return updated
   })

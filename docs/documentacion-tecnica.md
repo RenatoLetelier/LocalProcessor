@@ -128,8 +128,10 @@ Notas:
 | WS | `/jobs/stream` | Canal en tiempo real de progreso (consumido por la UI y opcionalmente por sistemas externos) |
 | GET | `/config` | Configuración actual (calidades, estándar, duración de segmento, carpeta output) |
 | PUT | `/config` | Actualiza configuración |
+| POST | `/config/api-token` | Regenera el token de acceso desde la red |
+| GET | `/system` | Codificadores detectados, concurrencia, dirección en la que escucha la API y IPs de red del equipo |
 
-La API escucha únicamente en `127.0.0.1` por defecto — no expone el servicio a la red salvo que el usuario lo habilite explícitamente.
+La API escucha únicamente en `127.0.0.1` por defecto — no expone el servicio a la red salvo que el usuario lo habilite explícitamente (`apiAccess: "lan"`, ver §12).
 
 ## 5. Flujo: procesamiento inicial de un título
 
@@ -235,8 +237,12 @@ Archivo generado junto al manifiesto, pensado para que un sistema externo (ej. L
 
 ## 12. Seguridad
 
-- La API local escucha en `127.0.0.1` por defecto.
-- No hay autenticación en v1 dado el uso estrictamente local — a evaluar si se expone en red en el futuro.
+- La API local escucha en `127.0.0.1` por defecto. Las peticiones que llegan por loopback (la UI y los programas de la misma máquina) no se autentican: el uso local sigue siendo el modelo de confianza de v1.
+- Acceso desde la red local, opcional (`apiAccess: "lan"` en la configuración; en la UI, *Permitir acceso desde la red local*): la API pasa a escuchar en `0.0.0.0` y exige a toda petición que no venga de loopback un token de 32 caracteres generado por la aplicación (`apiToken`). Se envía como `Authorization: Bearer <token>` o `X-Api-Key: <token>`; en el WebSocket `/jobs/stream` también se acepta `?token=`, porque los navegadores no pueden añadir cabeceras a un WebSocket.
+- Sin token o con uno incorrecto la respuesta es `401`; con el acceso en modo local, cualquier petición externa recibe `403`. Los preflight CORS (`OPTIONS`) no se autentican.
+- El token lo genera el servidor (nunca lo elige el cliente): se crea al habilitar el acceso por primera vez, se conserva al deshabilitarlo y se reemplaza con `POST /config/api-token`, lo que revoca el anterior de inmediato.
+- Cambiar el modo de acceso cierra el servidor HTTP y lo vuelve a abrir en la nueva dirección sin interrumpir los jobs en curso; la UI reconecta su WebSocket sola. Si no se puede escuchar en la red, la API vuelve a `127.0.0.1` y lo registra en el log.
+- El tráfico es HTTP sin cifrar: la opción está pensada para redes domésticas o de confianza.
 
 ## 13. Distribución
 

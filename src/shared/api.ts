@@ -75,4 +75,7 @@ export interface SystemInfo {
   encoders: { kind: string; label: string; hardware: boolean; available: boolean; error?: string }[]
   selectedEncoder: string
   concurrency: number
+  // Bound address of the API; 0.0.0.0 while LAN access is on
+  listening: { host: string; port: number } | null
+  lanAddresses: string[]
 }

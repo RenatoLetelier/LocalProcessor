@@ -109,3 +109,44 @@ export function ConfirmDialog({ options, onClose }: { options: ConfirmOptions; o
     </Modal>
   )
 }
+
+export function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+  useEffect(() => {
+    if (state === 'idle') return
+    const timer = setTimeout(() => setState('idle'), 1500)
+    return () => clearTimeout(timer)
+  }, [state])
+
+  const copy = (): void => {
+    navigator.clipboard.writeText(text).then(
+      () => setState('copied'),
+      () => setState(copyViaSelection(text) ? 'copied' : 'failed')
+    )
+  }
+
+  return (
+    <button type="button" className={`btn btn--sm ${className}`} onClick={copy}>
+      {state === 'copied' ? 'Copiado' : state === 'failed' ? 'No se pudo copiar' : 'Copiar'}
+    </button>
+  )
+}
+
+// Fallback for contexts where the async clipboard API is not allowed
+function copyViaSelection(text: string): boolean {
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    area.remove()
+  }
+}

@@ -70,12 +70,16 @@ interno.
 | `GET` | `/jobs`, `/jobs/:id` | Cola e historial |
 | `POST` | `/jobs/:id/cancel` | Cancela un job |
 | `WS` | `/jobs/stream` | Eventos en tiempo real (`job.progress`, `job.updated`, `title.updated`…) |
-| `GET` / `PUT` | `/config` | Configuración (estándares, calidades, segmentos, codificador…) |
+| `GET` / `PUT` | `/config` | Configuración (estándares, calidades, segmentos, codificador, acceso desde la red…) |
+| `POST` | `/config/api-token` | Regenera el token de acceso desde la red |
 | `GET` | `/system` | Codificadores detectados y concurrencia |
 
-La API escucha solo en `127.0.0.1` y no tiene autenticación (uso local). La
-sección **API** de la aplicación explica cómo entregar una película desde otro
-programa, con comandos `curl` listos para pegar en Postman.
+Por defecto la API escucha solo en `127.0.0.1` y no pide autenticación a los
+programas de la misma máquina. Con *Permitir acceso desde la red local*
+(Configuración) escucha en `0.0.0.0` y exige a las demás máquinas un token
+generado por la aplicación (`Authorization: Bearer <token>`; `?token=` en el
+WebSocket). La sección **API** de la aplicación explica cómo entregar una
+película desde otro programa, con comandos `curl` listos para pegar en Postman.
 
 ## Desarrollo
 

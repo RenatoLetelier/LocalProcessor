@@ -4,6 +4,7 @@ import type { AppConfig, Standard } from '@shared/config'
 import type { SystemInfo } from '@shared/api'
 import { SEGMENT_DURATION_RANGE, validateConfig } from '@shared/config-validate'
 import { ApiError, api } from '@/lib/api'
+import { ConfirmDialog, CopyButton, type ConfirmOptions } from '@/components/ui'
 import { useAppState } from '@/state/AppState'
 
 const STANDARDS: { id: Standard; label: string; hint: string }[] = [
@@ -12,12 +13,13 @@ const STANDARDS: { id: Standard; label: string; hint: string }[] = [
 ]
 
 export function Settings() {
-  const { config, saveConfig } = useAppState()
+  const { config, saveConfig, regenerateApiToken } = useAppState()
   const [draft, setDraft] = useState<AppConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [system, setSystem] = useState<SystemInfo | null>(null)
+  const [confirm, setConfirm] = useState<ConfirmOptions | null>(null)
 
   useEffect(() => {
     if (config) setDraft(structuredClone(config))
@@ -54,6 +56,17 @@ export function Settings() {
     else enabled.delete(label)
     update({ qualities: Object.keys(draft.rungs).filter((l) => enabled.has(l)) })
   }
+
+  const askRegenerateToken = (): void =>
+    setConfirm({
+      title: 'Regenerar token',
+      message: 'Los programas que usan el token actual perderán el acceso hasta que reciban el nuevo.',
+      confirmLabel: 'Regenerar',
+      danger: true,
+      onConfirm: async () => {
+        await regenerateApiToken()
+      }
+    })
 
   const setBitrate = (label: string, kbps: number): void =>
     update({ rungs: { ...draft.rungs, [label]: { ...draft.rungs[label]!, maxBitrateKbps: kbps } } })
@@ -210,6 +223,39 @@ export function Settings() {
         <p className="muted">Fija el GOP del codificador (duración × fps) para que cada segmento empiece en un keyframe. Apple recomienda 6 s.</p>
       </div>
 
+      <div className="card">
+        <h3 className="card__title">Acceso desde la red</h3>
+        <label className="check">
+          <input type="checkbox" checked={draft.apiAccess === 'lan'} onChange={(e) => update({ apiAccess: e.target.checked ? 'lan' : 'local' })} />
+          <span>
+            <strong>Permitir acceso desde la red local</strong>
+            <span className="muted">
+              {' '}
+              — la API pasa a escuchar en todas las interfaces (<code>0.0.0.0</code>) y exige un token a toda petición que no venga de este PC.
+              Los programas de este equipo siguen entrando sin token.
+            </span>
+          </span>
+        </label>
+        {config.apiAccess === 'lan' && config.apiToken && (
+          <div className="stack-sm" style={{ marginTop: 12 }}>
+            <div className="field-row">
+              <input className="input mono" readOnly value={config.apiToken} aria-label="Token de la API" />
+              <CopyButton text={config.apiToken} />
+              <button type="button" className="btn" onClick={askRegenerateToken}>
+                Regenerar
+              </button>
+            </div>
+            <p className="muted">
+              Se envía como <code>Authorization: Bearer &lt;token&gt;</code>. La sección API muestra las direcciones y comandos listos para usar.
+              Windows puede pedir permiso en el Firewall la primera vez; sin él, las otras máquinas no podrán conectarse.
+            </p>
+          </div>
+        )}
+        {draft.apiAccess === 'lan' && config.apiAccess !== 'lan' && (
+          <p className="muted" style={{ marginTop: 10 }}>El token se genera al guardar y aparecerá aquí.</p>
+        )}
+      </div>
+
       {problems.length > 0 && (
         <div className="alert alert--error">
           <ul>
@@ -220,6 +266,7 @@ export function Settings() {
         </div>
       )}
       {serverError && <div className="alert alert--error">{serverError}</div>}
+      {confirm && <ConfirmDialog options={confirm} onClose={() => setConfirm(null)} />}
 
       <div className="actions actions--sticky">
         <button type="button" className="btn btn--primary" disabled={!dirty || problems.length > 0 || saving} onClick={() => void save()}>

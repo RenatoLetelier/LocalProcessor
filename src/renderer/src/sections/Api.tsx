@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
-import { apiBaseUrl } from '@/lib/api'
+import type { SystemInfo } from '@shared/api'
+import { DEFAULT_API_HOST } from '@shared/constants'
+import { CopyButton } from '@/components/ui'
+import { api, apiBaseUrl } from '@/lib/api'
 import { bridge } from '@/lib/bridge'
 import { fileName } from '@/lib/format'
 import { useAppState } from '@/state/AppState'
@@ -43,13 +46,33 @@ const ENDPOINTS: { method: string; path: string; description: string }[] = [
 
 export function Api() {
   const { connection, apiVersion, config } = useAppState()
-  const [base, setBase] = useState('')
+  const [localBase, setLocalBase] = useState('')
+  const [system, setSystem] = useState<SystemInfo | null>(null)
+  const [host, setHost] = useState(DEFAULT_API_HOST)
   const [path, setPath] = useState(EXAMPLE_PATH)
   const [name, setName] = useState('')
 
   useEffect(() => {
-    void apiBaseUrl().then(setBase)
+    void apiBaseUrl().then(setLocalBase)
   }, [])
+
+  // Switching LAN access re-binds the server a moment after the config changes
+  const lan = config?.apiAccess === 'lan'
+  useEffect(() => {
+    const load = (): Promise<void> => api.system().then(setSystem, () => setSystem(null))
+    void load()
+    const timer = setTimeout(() => void load(), 1500)
+    return () => clearTimeout(timer)
+  }, [lan])
+
+  const lanAddresses = lan ? (system?.lanAddresses ?? []) : []
+  const remote = host !== DEFAULT_API_HOST && lanAddresses.includes(host)
+  const port = localBase ? new URL(localBase).port || '80' : ''
+  const base = remote ? `http://${host}:${port}` : localBase
+  const wsBase = base.replace(/^http/, 'ws')
+  const token = config?.apiToken ?? ''
+  const auth = remote ? [`-H ${shellArg(`Authorization: Bearer ${token}`)}`] : []
+  const wsUrl = `${wsBase}/jobs/stream${remote ? `?token=${token}` : ''}`
 
   const sourcePath = path.trim() || EXAMPLE_PATH
   const title = name.trim()
@@ -58,13 +81,19 @@ export function Api() {
 
   const jsonCurl = curl([
     `curl -X POST ${base}/titles`,
+    ...auth,
     `-H 'Content-Type: application/json'`,
     `-d ${shellArg(JSON.stringify({ sourcePath, ...(title ? { name: title } : {}) }))}`
   ])
-  const uploadCurl = curl([`curl -X POST ${base}/titles`, `-F ${shellArg(`file=@${sourcePath}`)}`, ...(title ? [`-F ${shellArg(`name=${title}`)}`] : [])])
-  const jobCurl = curl([`curl ${base}/jobs/${EXAMPLE_JOB_ID}`])
-  const titleCurl = curl([`curl ${base}/titles/${EXAMPLE_TITLE_ID}`])
-  const filesCurl = curl([`curl ${base}/titles/${EXAMPLE_TITLE_ID}/files`])
+  const uploadCurl = curl([
+    `curl -X POST ${base}/titles`,
+    ...auth,
+    `-F ${shellArg(`file=@${sourcePath}`)}`,
+    ...(title ? [`-F ${shellArg(`name=${title}`)}`] : [])
+  ])
+  const jobCurl = curl([`curl ${base}/jobs/${EXAMPLE_JOB_ID}`, ...auth])
+  const titleCurl = curl([`curl ${base}/titles/${EXAMPLE_TITLE_ID}`, ...auth])
+  const filesCurl = curl([`curl ${base}/titles/${EXAMPLE_TITLE_ID}/files`, ...auth])
 
   const created = JSON.stringify(
     {
@@ -115,19 +144,52 @@ export function Api() {
       <div className="card">
         <h3 className="card__title">Dirección</h3>
         <dl className="props">
+          <dt>Llamar desde</dt>
+          <dd>
+            <select className="input input--sm" value={remote ? host : DEFAULT_API_HOST} onChange={(e) => setHost(e.target.value)}>
+              <option value={DEFAULT_API_HOST}>Este PC ({DEFAULT_API_HOST})</option>
+              {lanAddresses.map((ip) => (
+                <option key={ip} value={ip}>
+                  Otra máquina de la red ({ip})
+                </option>
+              ))}
+            </select>
+          </dd>
           <dt>URL base</dt>
           <dd>
             <span className="mono">{base}</span> <CopyButton text={base} className="btn--link" />
           </dd>
           <dt>WebSocket</dt>
-          <dd className="mono">{base.replace(/^http/, 'ws')}/jobs/stream</dd>
+          <dd className="mono">{wsUrl}</dd>
           <dt>Estado</dt>
-          <dd>{connection === 'online' ? `Conectada · versión ${apiVersion ?? '?'}` : connection === 'offline' ? 'Sin conexión' : 'Conectando…'}</dd>
+          <dd>
+            {connection === 'online' ? `Conectada · versión ${apiVersion ?? '?'}` : connection === 'offline' ? 'Sin conexión' : 'Conectando…'}
+            {system?.listening && ` · escuchando en ${system.listening.host}:${system.listening.port}`}
+          </dd>
           <dt>Acceso</dt>
           <dd>
-            Solo desde este PC (<code>127.0.0.1</code>) y sin autenticación. Otro programa que corra en este equipo puede llamarla directamente;
-            desde otra máquina de la red no es accesible.
+            {lan ? (
+              <>
+                Habilitado para la red local. Los programas de este PC entran sin token; cualquier otra máquina debe enviar{' '}
+                <code>Authorization: Bearer &lt;token&gt;</code> (o <code>X-Api-Key</code>) en cada petición y <code>?token=</code> en el
+                WebSocket.
+                {lanAddresses.length === 0 && ' No se detectó ninguna dirección IPv4 de red en este equipo.'}
+              </>
+            ) : (
+              <>
+                Solo desde este PC (<code>127.0.0.1</code>) y sin autenticación. Para aceptar llamadas de otras máquinas activa{' '}
+                <em>Permitir acceso desde la red local</em> en Configuración: la API pasa a exigir un token generado por la aplicación.
+              </>
+            )}
           </dd>
+          {lan && token && (
+            <>
+              <dt>Token</dt>
+              <dd>
+                <span className="mono">{token}</span> <CopyButton text={token} className="btn--link" />
+              </dd>
+            </>
+          )}
         </dl>
         <p className="muted" style={{ marginTop: 10 }}>
           REST con JSON y un canal WebSocket. Los procesados encolados por la API usan la misma configuración que la interfaz (estándares,
@@ -159,6 +221,13 @@ export function Api() {
         <p>
           Para programas que corren en este PC o que ven el archivo en una unidad de red montada aquí. El archivo no se copia: se procesa
           desde donde está y debe seguir ahí para reprocesados futuros (agregar una calidad necesita el original).
+          {remote && (
+            <>
+              {' '}
+              <strong>Desde otra máquina la ruta se resuelve en este PC</strong>: tiene que ser una ruta que este equipo pueda abrir (por
+              ejemplo, una carpeta compartida montada aquí), no una ruta del equipo que llama.
+            </>
+          )}
         </p>
         <CodeBlock text={jsonCurl.display} copy={jsonCurl.copy} />
 
@@ -286,8 +355,9 @@ export function Api() {
         </p>
         <CodeBlock text={titleCurl.display} copy={titleCurl.copy} />
         <p>
-          Para no consultar en bucle, el WebSocket <code>{base.replace(/^http/, 'ws')}/jobs/stream</code> envía primero{' '}
-          <code>{'{ "type": "snapshot", "jobs": [...] }'}</code> con los jobs activos y después un mensaje JSON por evento:
+          Para no consultar en bucle, el WebSocket <code>{wsUrl}</code> envía primero <code>{'{ "type": "snapshot", "jobs": [...] }'}</code>{' '}
+          con los jobs activos y después un mensaje JSON por evento
+          {remote && ' (desde la red el token viaja en ?token=, porque un navegador no puede añadir cabeceras a un WebSocket)'}:
         </p>
         <ul>
           <li>
@@ -308,7 +378,7 @@ export function Api() {
         </ul>
         <CodeBlock
           text={[
-            `const ws = new WebSocket('${base.replace(/^http/, 'ws')}/jobs/stream')`,
+            `const ws = new WebSocket('${wsUrl}')`,
             'ws.onmessage = (message) => {',
             '  const event = JSON.parse(message.data)',
             "  if (event.type === 'job.updated' && event.job.status === 'done') console.log('listo', event.job.title_id)",
@@ -391,45 +461,4 @@ function CodeBlock({ text, copy }: { text: string; copy?: string }) {
       {text}
     </pre>
   )
-}
-
-function CopyButton({ text, className = '' }: { text: string; className?: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
-
-  useEffect(() => {
-    if (state === 'idle') return
-    const timer = setTimeout(() => setState('idle'), 1500)
-    return () => clearTimeout(timer)
-  }, [state])
-
-  const copy = (): void => {
-    navigator.clipboard.writeText(text).then(
-      () => setState('copied'),
-      () => setState(copyViaSelection(text) ? 'copied' : 'failed')
-    )
-  }
-
-  return (
-    <button type="button" className={`btn btn--sm ${className}`} onClick={copy}>
-      {state === 'copied' ? 'Copiado' : state === 'failed' ? 'No se pudo copiar' : 'Copiar'}
-    </button>
-  )
-}
-
-// Fallback for contexts where the async clipboard API is not allowed
-function copyViaSelection(text: string): boolean {
-  const area = document.createElement('textarea')
-  area.value = text
-  area.setAttribute('readonly', '')
-  area.style.position = 'fixed'
-  area.style.opacity = '0'
-  document.body.appendChild(area)
-  area.select()
-  try {
-    return document.execCommand('copy')
-  } catch {
-    return false
-  } finally {
-    area.remove()
-  }
 }
