@@ -9,6 +9,10 @@ carpeta lista para streaming".
 - Escalera de calidades configurable (2160p / 1080p / 720p / 480p…) sin
   upscaling: cada calidad es una caja máxima y el video se escala para caber en
   ella conservando el aspect ratio.
+- Los orígenes HDR (HDR10/PQ o HLG) se convierten a SDR con *tone-mapping*,
+  así que se ven con colores correctos en cualquier reproductor; Dolby Vision
+  con base HDR10 (perfiles 7 y 8) incluido. `metadata.json` indica el rango
+  dinámico de origen y de salida en `dynamicRange`.
 - Todas las pistas de audio del original se preservan: AAC se copia; AC-3/E-AC-3
   se copian y además se genera una versión AAC con los mismos canales (Chrome y
   Firefox no decodifican Dolby); el resto (DTS, TrueHD, FLAC…) se transcodifica a

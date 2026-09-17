@@ -41,6 +41,17 @@ export function wouldUpscale(width: number, height: number, box: Pick<Rung, 'wid
   return width < box.width && height < box.height
 }
 
+// Sources the pipeline would turn into a wrong picture rather than a worse one.
+// Dolby Vision profile 5 carries no HDR10-compatible base layer (IPTPQc2), so
+// without a Dolby decoder every frame comes out tinted; the other profiles have
+// an HDR10 base the tone-mapping handles.
+export function unsupportedSourceReason(source: SourceInfo): string | null {
+  if (source.video.hdr?.dolbyVisionProfile === 5) {
+    return 'Dolby Vision perfil 5 sin capa base HDR10: no se puede convertir a SDR con colores correctos'
+  }
+  return null
+}
+
 export function planEncode(source: SourceInfo, options: PlanOptions): EncodePlan {
   const { fps, displayWidth, displayHeight } = source.video
   const gop = gopFrames(options.segmentDurationSeconds, fps)

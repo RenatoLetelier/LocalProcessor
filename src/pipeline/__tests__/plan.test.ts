@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG } from '@shared/config'
-import { aacBitrateKbps, fitInBox, gopFrames, planAudio, planAudioTracks, planEncode, planExternalTrack, planSubtitle, wouldUpscale } from '../plan'
+import { aacBitrateKbps, fitInBox, gopFrames, planAudio, planAudioTracks, planEncode, planExternalTrack, planSubtitle, unsupportedSourceReason, wouldUpscale } from '../plan'
 import type { SourceAudio, SourceInfo, SourceSubtitle } from '../types'
 
 const audio = (over: Partial<SourceAudio>): SourceAudio => ({
@@ -32,6 +32,7 @@ const source = (over: Partial<SourceInfo['video']> = {}, extra: Partial<SourceIn
     bitrate: 8_000_000,
     bitrateEstimated: false,
     pixelFormat: 'yuv420p',
+    hdr: null,
     ...over
   },
   audio: [audio({})],
@@ -111,6 +112,19 @@ describe('planEncode', () => {
     expect(plan.subtitles).toEqual([
       { sourceIndex: 3, input: { streamIndex: 3 }, sourceCodec: 'subrip', language: 'es', name: 'Español', title: null, forced: false, isDefault: false }
     ])
+  })
+})
+
+describe('unsupportedSourceReason', () => {
+  const hdr = (dolbyVisionProfile: number | null): SourceInfo =>
+    source({ hdr: { transfer: 'pq', colorTransfer: 'smpte2084', colorPrimaries: 'bt2020', colorSpace: 'bt2020nc', peakNits: 1000, dolbyVisionProfile } })
+
+  it('refuses only Dolby Vision profile 5, which has no HDR10-compatible base layer', () => {
+    expect(unsupportedSourceReason(hdr(5))).toMatch(/Dolby Vision perfil 5/)
+    expect(unsupportedSourceReason(hdr(8))).toBeNull()
+    expect(unsupportedSourceReason(hdr(7))).toBeNull()
+    expect(unsupportedSourceReason(hdr(null))).toBeNull()
+    expect(unsupportedSourceReason(source())).toBeNull()
   })
 })
 

@@ -7,7 +7,7 @@ import { DASH_MANIFEST, MASTER_PLAYLIST, METADATA_FILE, WORK_DIR, audioDir, rend
 import { measureBandwidth, mergeMasterPlaylists, mergeMetadata, mergeMpds, replaceFileAtomic } from './manifests'
 import { buildMetadata, writeJsonAtomic } from './metadata'
 import { ENC_DIR, PKG_DIR, buildPackagerArgs, runPackager } from './packager'
-import { planEncode, planExternalTrack } from './plan'
+import { planEncode, planExternalTrack, unsupportedSourceReason } from './plan'
 import { probeSource, probeTrackFile, type TrackFileInfo } from './probe'
 import type {
   Binaries,
@@ -26,7 +26,7 @@ import type {
 export { resolveBinaries, BinaryNotFoundError } from './binaries'
 export { ProcessError } from './exec'
 export { ProbeError, probeSource, probeTrackFile } from './probe'
-export { planEncode } from './plan'
+export { planEncode, unsupportedSourceReason } from './plan'
 export * from './types'
 
 export class PipelineError extends Error {
@@ -100,6 +100,8 @@ export async function processTitle(
     const externals = await probeExternalTracks(binaries, input.externalTracks ?? [], hooks.signal)
 
     report('plan')
+    const unsupported = unsupportedSourceReason(source)
+    if (unsupported) throw new PipelineError('plan', unsupported)
     const plan = planEncode(source, input.plan)
     addExternalTracks(plan, input.externalTracks ?? [], externals)
     if (plan.renditions.length === 0) {

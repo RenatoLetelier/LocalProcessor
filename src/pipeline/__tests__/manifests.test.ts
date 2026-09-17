@@ -183,6 +183,7 @@ describe('mergeMetadata', () => {
     durationSeconds: 10,
     standards: ['hls'],
     manifests: { hls: 'master.m3u8' },
+    dynamicRange: { source: 'sdr', output: 'sdr' },
     segmentDurationSeconds: 6,
     renditions: [{ label: '720p', width: 1280, height: 534, bitrate: 1, maxBitrate: 2, codec: 'h264', path: 'video/720p' }],
     audioTracks: [{ id: '1_es_aac', language: 'es', name: 'Español', codec: 'aac', channels: 2, path: 'audio/1_es_aac' }],

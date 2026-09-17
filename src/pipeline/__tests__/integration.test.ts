@@ -162,12 +162,48 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
         { id: '5_en', language: 'en', name: 'Forced', format: 'vtt', forced: true, path: 'subs/5_en' }
       ]
     })
+    expect(metadata.dynamicRange).toEqual({ source: 'sdr', output: 'sdr' })
     expect(metadata.durationSeconds).toBeCloseTo(6, 0)
     expect(metadata.segmentDurationSeconds).toBeCloseTo(2.002, 3)
     // The synthetic clip is below the 1080p ceiling, so rule 1 caps the top rung at the source bitrate
     expect(metadata.renditions[0].maxBitrate).toBeLessThanOrEqual(6_000_000)
     expect(metadata.renditions.every((r: { bitrate: number }) => r.bitrate > 0)).toBe(true)
   })
+
+  it('tone-maps an HDR10 source to BT.709 SDR and says so in the manifests and metadata', async () => {
+    const hdrSample = generateSample(binaries!.ffmpeg, { out: join(root, 'hdr.mkv'), durationSeconds: 3, size: '960x400', hdr: true })
+    const result = await processTitle(
+      binaries!,
+      {
+        titleId: '00000000-0000-4000-8000-000000000003',
+        name: 'HDR',
+        sourcePath: hdrSample,
+        outputRoot: join(root, 'out'),
+        standards: ['hls', 'dash'],
+        plan: { rungs: DEFAULT_CONFIG.rungs, qualities: ['480p', '360p'], segmentDurationSeconds: 2 },
+        videoEncoder: { preset: 'veryfast' }
+      }
+    )
+    expect(result.source.video.hdr).toEqual({
+      transfer: 'pq',
+      colorTransfer: 'smpte2084',
+      colorPrimaries: 'bt2020',
+      colorSpace: 'bt2020nc',
+      peakNits: 800,
+      dolbyVisionProfile: null
+    })
+    expect(result.metadata.dynamicRange).toEqual({ source: 'pq', output: 'sdr' })
+
+    const master = readFileSync(join(result.outputFolder, 'master.m3u8'), 'utf8')
+    expect(master).toContain('VIDEO-RANGE=SDR')
+    expect(master).not.toContain('VIDEO-RANGE=PQ')
+    const colour = execFileSync(binaries!.ffprobe, [
+      '-v', 'error', '-allowed_extensions', 'ALL', '-select_streams', 'v:0',
+      '-show_entries', 'stream=pix_fmt,color_primaries,color_transfer,color_space', '-of', 'csv=p=0',
+      join(result.outputFolder, 'video/480p/playlist.m3u8')
+    ]).toString().trim().split(/\r?\n/)[0]
+    expect(colour).toBe('yuv420p,bt709,bt709,bt709')
+  }, 120_000)
 
   it('falls back to a native rendition for sources smaller than every rung', async () => {
     const small = generateSample(binaries!.ffmpeg, { out: join(root, 'small.mkv'), durationSeconds: 3, size: '320x180' })

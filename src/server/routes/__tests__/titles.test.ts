@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Response as InjectResponse } from 'light-my-request'
 import type { Job } from '@shared/model'
-import { createTestServer, fakePipeline, type TestServer } from './helpers'
+import { createTestServer, fakePipeline, fakeSource, type TestServer } from './helpers'
 
 let root: string
 let server: TestServer
@@ -34,6 +34,31 @@ function untilJob(jobId: string, status: Job['status']): Promise<Job> {
     })
   })
 }
+
+describe('POST /titles with HDR sources', () => {
+  const hdrProbe = (dolbyVisionProfile: number | null) => async (_b: unknown, path: string) => {
+    const info = fakeSource(path, { codec: 'hevc', pixelFormat: 'yuv420p10le' })
+    info.video.hdr = { transfer: 'pq', colorTransfer: 'smpte2084', colorPrimaries: 'bt2020', colorSpace: 'bt2020nc', peakNits: 1000, dolbyVisionProfile }
+    return info
+  }
+
+  it('records the HDR transfer of the source on the title', async () => {
+    await server.app.close()
+    server = await createTestServer({ outputFolder: root, pipeline: fakePipeline({ ticks: 1 }), probe: hdrProbe(8) })
+    const res = await post({ sourcePath: join(root, 'movie.mkv') })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().title.source_hdr).toBe('pq')
+  })
+
+  it('refuses Dolby Vision profile 5 up front instead of producing a tinted picture', async () => {
+    await server.app.close()
+    server = await createTestServer({ outputFolder: root, pipeline: fakePipeline({ ticks: 1 }), probe: hdrProbe(5) })
+    const res = await post({ sourcePath: join(root, 'movie.mkv') })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().message).toMatch(/Dolby Vision perfil 5/)
+    expect(server.db.repos.titles.list()).toHaveLength(0)
+  })
+})
 
 describe('POST /titles', () => {
   it('requires the output folder to be configured', async () => {

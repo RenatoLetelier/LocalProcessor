@@ -52,6 +52,7 @@ export function Library({ selectedId, onSelect }: { selectedId: string | null; o
               <td className="muted">
                 {title.source_width && title.source_height ? `${title.source_width}×${title.source_height}` : '—'}
                 {title.source_video_codec ? ` · ${title.source_video_codec}` : ''}
+                {title.source_hdr ? ` · HDR ${title.source_hdr.toUpperCase()}` : ''}
               </td>
               <td className="muted">{formatDuration(title.duration_seconds)}</td>
               <td className="muted">{formatDate(title.created_at)}</td>
@@ -142,6 +143,9 @@ function TitleView({ title, onBack }: { title: Title; onBack: () => void }) {
             <dd>
               {title.source_width}×{title.source_height} · {title.source_video_codec ?? '—'} · {title.source_fps?.toFixed(3) ?? '—'} fps ·{' '}
               {formatBitrate(title.source_video_bitrate)}
+              {title.source_hdr && (
+                <div className="table__note">HDR {title.source_hdr.toUpperCase()} en el origen: la salida se convierte a SDR (tone-mapping)</div>
+              )}
             </dd>
             <dt>Duración</dt>
             <dd>{formatDuration(title.duration_seconds)}</dd>

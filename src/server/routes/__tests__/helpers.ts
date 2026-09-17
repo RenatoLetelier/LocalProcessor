@@ -30,6 +30,7 @@ export const fakeSource = (path: string, over: Partial<SourceInfo['video']> = {}
     bitrate: 4_000_000,
     bitrateEstimated: false,
     pixelFormat: 'yuv420p',
+    hdr: null,
     ...over
   },
   audio: [
@@ -94,6 +95,7 @@ export function fakePipeline(options: FakePipelineOptions = {}): PipelineFn {
       durationSeconds: source.durationSeconds,
       standards: input.standards,
       manifests: { hls: 'master.m3u8' },
+      dynamicRange: { source: 'sdr', output: 'sdr' },
       segmentDurationSeconds: plan.actualSegmentSeconds,
       renditions: plan.renditions.map((r) => ({
         label: r.label,
@@ -147,6 +149,7 @@ export function fakeIncremental(options: FakePipelineOptions = {}): IncrementalF
       durationSeconds: source.durationSeconds,
       standards: ['hls'],
       manifests: { hls: 'master.m3u8' },
+      dynamicRange: { source: 'sdr', output: 'sdr' },
       segmentDurationSeconds: 6,
       renditions: plan.renditions.map((r) => ({ label: r.label, width: r.width, height: r.height, bitrate: 1, maxBitrate: 1, codec: 'h264', path: `video/${r.label}` })),
       audioTracks: [],
@@ -167,7 +170,7 @@ export interface TestServer {
 }
 
 export async function createTestServer(
-  options: { pipeline?: PipelineFn; incremental?: IncrementalFn; outputFolder?: string; concurrency?: number; hardware?: HardwareInfo } = {}
+  options: { pipeline?: PipelineFn; incremental?: IncrementalFn; outputFolder?: string; concurrency?: number; hardware?: HardwareInfo; probe?: Prober } = {}
 ): Promise<TestServer> {
   const db = openDatabase(':memory:')
   const events = new ServerEvents()
@@ -189,7 +192,7 @@ export async function createTestServer(
     host: '127.0.0.1',
     port: 0,
     version: 'test',
-    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, hardware: options.hardware ?? null, probe: fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
+    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, hardware: options.hardware ?? null, probe: options.probe ?? fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
     allowedOrigins,
     logLevel: 'silent'
   })

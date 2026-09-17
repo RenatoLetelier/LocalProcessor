@@ -45,6 +45,7 @@ export async function buildMetadata(input: MetadataInput): Promise<TitleMetadata
     standards: input.standards,
     manifests,
     segmentDurationSeconds: plan.actualSegmentSeconds,
+    dynamicRange: { source: source.video.hdr?.transfer ?? 'sdr', output: 'sdr' },
     renditions,
     audioTracks: plan.audio.map((audio) => ({
       id: audioTrackId(audio),

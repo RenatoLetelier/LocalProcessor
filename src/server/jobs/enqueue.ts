@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Job, Title } from '@shared/model'
-import { planEncode } from '@pipeline/plan'
+import { planEncode, unsupportedSourceReason } from '@pipeline/plan'
 import { ProbeError, probeSource } from '@pipeline/probe'
 import { ProcessError } from '@pipeline/exec'
 import type { Binaries, SourceInfo } from '@pipeline/types'
@@ -60,6 +60,9 @@ export async function enqueueTitle(deps: EnqueueDeps, input: EnqueueInput): Prom
     throw error
   })
 
+  const unsupported = unsupportedSourceReason(source)
+  if (unsupported) throw badRequest(`El archivo no se puede procesar: ${unsupported}`)
+
   const plan = planEncode(source, config)
   if (deps.checkDiskSpace !== false) {
     const required = estimatePeakBytes(source, plan)
@@ -87,6 +90,7 @@ export async function enqueueTitle(deps: EnqueueDeps, input: EnqueueInput): Prom
     source_video_bitrate: source.video.bitrate,
     source_fps: source.video.fps.num / source.video.fps.den,
     source_video_codec: source.video.codec,
+    source_hdr: source.video.hdr?.transfer ?? null,
     duration_seconds: source.durationSeconds
   })!
   const job = repos.jobs.create({ title_id: id, tipo: 'inicial', config })

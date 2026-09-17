@@ -24,6 +24,22 @@ export interface SourceVideo {
   bitrate: number | null
   bitrateEstimated: boolean
   pixelFormat: string | null
+  // null for SDR sources; HDR ones are tone-mapped to SDR by the encode
+  hdr: SourceHdr | null
+}
+
+export type HdrTransfer = 'pq' | 'hlg'
+
+export interface SourceHdr {
+  transfer: HdrTransfer
+  // ffprobe names of the colour signalling, handed to zscale verbatim
+  colorTransfer: string
+  colorPrimaries: string
+  colorSpace: string
+  // Brightest signal in nits (MaxCLL, else mastering display peak, else DEFAULT_HDR_PEAK_NITS)
+  peakNits: number
+  // Dolby Vision profile when present; profile 5 has no HDR10-compatible base layer
+  dolbyVisionProfile: number | null
 }
 
 export interface SourceAudio {
@@ -210,6 +226,8 @@ export interface TitleMetadata {
   standards: Standard[]
   manifests: Partial<Record<Standard, string>>
   segmentDurationSeconds: number
+  // What the source was graded in and what the renditions carry (always SDR for now)
+  dynamicRange: { source: 'sdr' | HdrTransfer; output: 'sdr' }
   renditions: MetadataRendition[]
   audioTracks: MetadataAudioTrack[]
   subtitleTracks: MetadataSubtitleTrack[]

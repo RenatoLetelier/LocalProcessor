@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFfmpegArgs, buildSubtitleArgs, parseProgressLine } from '../ffmpeg'
+import { buildFfmpegArgs, buildSubtitleArgs, hdrToSdrFilter, parseProgressLine } from '../ffmpeg'
 import { buildPackagerArgs } from '../packager'
 import { languageDisplayName, toBcp47 } from '../lang'
 import type { EncodePlan, SourceInfo } from '../types'
@@ -19,7 +19,8 @@ const source: SourceInfo = {
     fps: { num: 24000, den: 1001 },
     bitrate: null,
     bitrateEstimated: true,
-    pixelFormat: 'yuv420p'
+    pixelFormat: 'yuv420p',
+    hdr: null
   },
   audio: [],
   subtitles: []
@@ -92,6 +93,57 @@ describe('buildFfmpegArgs', () => {
     ])
     expect(multiArgs.filter((a) => a === '-vf')).toHaveLength(0)
     expect(multiArgs.filter((a) => a.startsWith('[v_'))).toEqual(['[v_1080p]', '[v_720p]'])
+  })
+})
+
+describe('buildFfmpegArgs with an HDR source', () => {
+  const hdr: SourceInfo = {
+    ...source,
+    video: {
+      ...source.video,
+      codec: 'hevc',
+      pixelFormat: 'yuv420p10le',
+      hdr: { transfer: 'pq', colorTransfer: 'smpte2084', colorPrimaries: 'bt2020', colorSpace: 'bt2020nc', peakNits: 449, dolbyVisionProfile: 8 }
+    }
+  }
+  const toneMap =
+    'zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0:peak=4.49,zscale=t=bt709:m=bt709:r=tv,format=yuv420p'
+
+  it('tone-maps once before the split, with the peak from the source metadata', () => {
+    expect(hdrToSdrFilter(hdr.video.hdr!)).toBe(toneMap)
+    const multi: EncodePlan = {
+      ...plan,
+      renditions: [
+        { label: '1080p', width: 1920, height: 800, maxBitrateKbps: 6000, gopFrames: 144 },
+        { label: '720p', width: 1280, height: 534, maxBitrateKbps: 3000, gopFrames: 144 }
+      ]
+    }
+    const { args: multiArgs } = buildFfmpegArgs(hdr, multi, 'enc')
+    expect(window(multiArgs, '-filter_complex')[0]).toMatch(new RegExp(`^\\[0:0\\]${toneMap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')},split=2`))
+    expect(multiArgs.join(' ').match(/zscale=tin/g)).toHaveLength(1)
+  })
+
+  it('tone-maps inside -vf for a single rendition, leaving the colour tagging to zscale', () => {
+    const { args } = buildFfmpegArgs(hdr, plan, 'enc')
+    expect(window(args, '-vf')).toEqual([`${toneMap},scale=1280:534:flags=bicubic,setsar=1`])
+    expect(args.join(' ')).not.toMatch(/-color_primaries|-color_trc|-colorspace/)
+  })
+
+  it('leaves SDR sources untouched', () => {
+    const { args } = buildFfmpegArgs(source, plan, 'enc')
+    expect(args.join(' ')).not.toMatch(/zscale|tonemap/)
+  })
+
+  it('decodes on NVDEC only for the title input and only with NVENC', () => {
+    const nvenc = buildFfmpegArgs(hdr, plan, 'enc', { kind: 'h264_nvenc' }).args
+    expect(nvenc.slice(nvenc.indexOf('-hwaccel'), nvenc.indexOf('-hwaccel') + 4)).toEqual(['-hwaccel', 'cuda', '-i', 'C:/in/movie.mkv'])
+    expect(nvenc.filter((a) => a === '-hwaccel')).toHaveLength(1)
+
+    const external: EncodePlan = { ...plan, audio: [{ ...plan.audio[0]!, sourceIndex: -1, input: { path: 'C:/in/dub.m4a', streamIndex: 0 } }] }
+    const withDub = buildFfmpegArgs(source, external, 'enc', { kind: 'h264_nvenc' }).args
+    expect(withDub.slice(0, withDub.indexOf('C:/in/dub.m4a') + 1)).toEqual(expect.arrayContaining(['-hwaccel', 'cuda', '-i', 'C:/in/movie.mkv', '-i', 'C:/in/dub.m4a']))
+    expect(withDub.filter((a) => a === '-hwaccel')).toHaveLength(1)
+    expect(buildFfmpegArgs(hdr, plan, 'enc', { kind: 'libx264' }).args).not.toContain('-hwaccel')
   })
 })
 

@@ -64,6 +64,7 @@ erDiagram
         int source_width
         int source_height
         int source_video_bitrate
+        string source_hdr
         string output_folder
         string status
         datetime created_at
@@ -195,6 +196,7 @@ sequenceDiagram
 ## 7. Motor de codificación — reglas clave
 
 - **No upscaling:** antes de codificar, `ffprobe` determina resolución y bitrate de origen. Cualquier calidad configurada que exceda esos valores se omite automáticamente para ese título.
+- **HDR → SDR:** `ffprobe` identifica los orígenes HDR por la función de transferencia (`smpte2084` = PQ, `arib-std-b67` = HLG) y lee del primer fotograma el pico de brillo (MaxCLL, si no el de la pantalla de masterización; 1000 nits si no hay metadatos). En el encode se inserta una sola vez, antes del `split` a las calidades, la cadena `zscale` (linealización con 100 nits = 1.0 y primarios BT.709) → `tonemap=hable` con ese pico → `zscale` a BT.709 8 bits; las pistas quedan señalizadas como BT.709 (`VIDEO-RANGE=SDR` en HLS) y `metadata.json` lo refleja en `dynamicRange`. El filtro corre en CPU (≈1,8× el tiempo de codificación en 4K); con NVENC la decodificación pasa a NVDEC (`-hwaccel cuda`) para descargar la CPU, con vuelta automática a software si el códec no está soportado. Dolby Vision perfil 5 (base IPTPQc2, sin compatibilidad HDR10) se rechaza al encolar.
 - **Segmento configurable + GOP:** la duración de segmento (default 6s) determina el tamaño de GOP en ffmpeg (`GOP = duración_segmento × fps`), para que los cortes de segmento caigan exactamente en un keyframe.
 - **Audio:** se preservan todas las pistas. Códecs no compatibles con streaming (ej. DTS) se transcodifican a AAC o EAC3; códecs ya compatibles (AAC, AC3) se preservan sin recodificar cuando es posible.
 - **Subtítulos:** pistas de texto (SRT/ASS) se convierten a WebVTT (o TTML para DASH). Pistas de imagen (PGS/VobSub) requieren un paso de OCR a texto — a definir como configuración por defecto (OCR vs. quemado en video).
@@ -216,6 +218,7 @@ Archivo generado junto al manifiesto, pensado para que un sistema externo (ej. L
   "titleId": "string",
   "duration": 0,
   "standard": ["hls", "dash"],
+  "dynamicRange": { "source": "sdr | pq | hlg", "output": "sdr" },
   "renditions": [{ "width": 0, "height": 0, "bitrate": 0 }],
   "audioTracks": [{ "language": "string", "codec": "string", "channels": 0 }],
   "subtitleTracks": [{ "language": "string", "format": "string" }],

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { SOFTWARE_ENCODER, encoderFilterSuffix, encoderGlobalArgs, videoCodecArgs, type EncoderKind } from './encoders'
+import { SOFTWARE_ENCODER, encoderFilterSuffix, encoderGlobalArgs, encoderInputArgs, videoCodecArgs, type EncoderKind } from './encoders'
 import { run } from './exec'
 import { encodedAudioFile, encodedSubtitleFile, encodedVideoFile } from './layout'
 import type {
@@ -9,6 +9,7 @@ import type {
   EncodePlan,
   RenditionPlan,
   SkippedItem,
+  SourceHdr,
   SourceInfo,
   SubtitlePlan,
   TrackInput,
@@ -36,23 +37,25 @@ export function buildFfmpegArgs(
   for (const audio of plan.audio) inputs.add(audio.input.path)
 
   const args = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'warning', '-nostats', '-progress', 'pipe:1', ...encoderGlobalArgs(opts.kind)]
-  for (const path of inputs.paths) args.push('-i', path)
+  inputs.paths.forEach((path, i) => args.push(...(i === 0 ? encoderInputArgs(opts.kind) : []), '-i', path))
   const outputs: EncodeOutputs = { video: [], audio: [] }
 
+  // HDR is mapped to SDR once, on the decoded frames, before they fan out to the renditions
+  const toneMap = source.video.hdr ? `${hdrToSdrFilter(source.video.hdr)},` : ''
   const videoInput = `0:${source.video.index}`
   const labels = plan.renditions.map((r) => `[v_${r.label}]`)
   if (plan.renditions.length > 1) {
     const chain = plan.renditions.map((r) => `[s_${r.label}]${scaleFilter(r, opts.kind)}[v_${r.label}]`)
     args.push(
       '-filter_complex',
-      `[${videoInput}]split=${plan.renditions.length}${labels.map((l) => l.replace('v_', 's_')).join('')};${chain.join(';')}`
+      `[${videoInput}]${toneMap}split=${plan.renditions.length}${labels.map((l) => l.replace('v_', 's_')).join('')};${chain.join(';')}`
     )
   }
 
   plan.renditions.forEach((rendition, i) => {
     const file = join(encDir, encodedVideoFile(rendition.label))
     if (plan.renditions.length > 1) args.push('-map', labels[i]!)
-    else args.push('-map', videoInput, '-vf', scaleFilter(rendition, opts.kind))
+    else args.push('-map', videoInput, '-vf', `${toneMap}${scaleFilter(rendition, opts.kind)}`)
     args.push(...videoCodecArgs(opts.kind, rendition, plan, opts), '-an', '-sn', '-dn', '-map_metadata', '-1', '-f', 'mp4', file)
     outputs.video.push({ label: rendition.label, file })
   })
@@ -87,6 +90,25 @@ class InputList {
 // setsar=1 turns anamorphic sources into square pixels at the display size
 function scaleFilter(rendition: RenditionPlan, kind: EncoderKind): string {
   return `scale=${rendition.width}:${rendition.height}:flags=bicubic,setsar=1${encoderFilterSuffix(kind)}`
+}
+
+// Linearise the HDR signal (100 nits = 1.0), move to BT.709 primaries, compress
+// the highlights above the SDR range with the Hable filmic curve and re-encode
+// as BT.709 8-bit video. The signal peak comes from the source metadata, in
+// units of the 100-nit reference white the linear stage established. zscale
+// tags the frames BT.709, which the encoders write into the stream, so players
+// and the packager (VIDEO-RANGE=SDR) see plain SDR; the -color_* output options
+// are deliberately not used because ffmpeg 8 turns them into a conversion request.
+export function hdrToSdrFilter(hdr: SourceHdr): string {
+  const peak = (hdr.peakNits / 100).toFixed(2)
+  return [
+    `zscale=tin=${hdr.colorTransfer}:pin=${hdr.colorPrimaries}:min=${hdr.colorSpace}:t=linear:npl=100`,
+    'format=gbrpf32le',
+    'zscale=p=bt709',
+    `tonemap=tonemap=hable:desat=0:peak=${peak}`,
+    'zscale=t=bt709:m=bt709:r=tv',
+    'format=yuv420p'
+  ].join(',')
 }
 
 function audioCodecArgs(audio: AudioPlan): string[] {

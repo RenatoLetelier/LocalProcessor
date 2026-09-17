@@ -1,4 +1,4 @@
-// npm run make-sample -- [--out samples/sample.mkv] [--duration 20] [--size 1920x800] [--fps 24000/1001]
+// npm run make-sample -- [--out samples/sample.mkv] [--duration 20] [--size 1920x800] [--fps 24000/1001] [--hdr]
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { resolveBinaries } from '../src/pipeline/binaries'
@@ -9,7 +9,8 @@ const { values } = parseArgs({
     out: { type: 'string', default: 'samples/sample.mkv' },
     duration: { type: 'string', default: '20' },
     size: { type: 'string', default: '1920x800' },
-    fps: { type: 'string', default: '24000/1001' }
+    fps: { type: 'string', default: '24000/1001' },
+    hdr: { type: 'boolean', default: false }
   }
 })
 
@@ -18,6 +19,7 @@ const out = generateSample(ffmpeg, {
   out: resolve(values.out),
   durationSeconds: Number(values.duration),
   size: values.size,
-  fps: values.fps
+  fps: values.fps,
+  hdr: values.hdr
 })
 console.log(`Muestra generada: ${out}`)

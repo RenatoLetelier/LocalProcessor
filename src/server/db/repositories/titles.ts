@@ -22,6 +22,7 @@ const MUTABLE_COLUMNS = [
   'source_video_bitrate',
   'source_fps',
   'source_video_codec',
+  'source_hdr',
   'duration_seconds',
   'output_folder',
   'status',

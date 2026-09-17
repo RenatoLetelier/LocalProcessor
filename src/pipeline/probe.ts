@@ -1,7 +1,11 @@
 import { capture } from './exec'
-import type { Binaries, Fraction, SourceAudio, SourceInfo, SourceSubtitle, SourceVideo } from './types'
+import type { Binaries, Fraction, HdrTransfer, SourceAudio, SourceHdr, SourceInfo, SourceSubtitle, SourceVideo } from './types'
 
 const IMAGE_SUBTITLE_CODECS = new Set(['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle', 'xsub'])
+const HDR_TRANSFERS: Record<string, HdrTransfer> = { smpte2084: 'pq', 'arib-std-b67': 'hlg' }
+// Assumed when a source carries no static metadata; ffmpeg would otherwise assume
+// the 10 000-nit PQ ceiling and tone-map everything far too dark
+export const DEFAULT_HDR_PEAK_NITS = 1000
 
 export class ProbeError extends Error {
   constructor(message: string) {
@@ -25,8 +29,21 @@ export interface FfprobeStream {
   channel_layout?: string
   sample_rate?: string
   duration?: string
+  color_transfer?: string
+  color_primaries?: string
+  color_space?: string
   disposition?: Record<string, number>
   tags?: Record<string, string>
+  side_data_list?: FfprobeSideData[]
+}
+
+export interface FfprobeSideData {
+  side_data_type?: string
+  // DOVI configuration record
+  dv_profile?: number
+  // Mastering display metadata (fraction string, cd/m²) and content light level (integers, cd/m²)
+  max_luminance?: string
+  max_content?: number
 }
 
 export interface FfprobeOutput {
@@ -34,8 +51,15 @@ export interface FfprobeOutput {
   format?: { format_name?: string; duration?: string; size?: string; bit_rate?: string }
 }
 
+export interface FfprobeFramesOutput {
+  frames?: { side_data_list?: FfprobeSideData[] }[]
+}
+
 export async function probeSource(binaries: Binaries, path: string, signal?: AbortSignal): Promise<SourceInfo> {
-  return parseProbeOutput(await runProbe(binaries, path, signal), path)
+  const info = parseProbeOutput(await runProbe(binaries, path, signal), path)
+  // HDR static metadata travels with the frames, not the stream: decode the first one
+  if (info.video.hdr) info.video.hdr.peakNits = parseHdrPeak(await runFrameProbe(binaries, path, info.video.index, signal))
+  return info
 }
 
 // Audio dubs and subtitle files have no video: only their tracks matter
@@ -63,6 +87,15 @@ async function runProbe(binaries: Binaries, path: string, signal?: AbortSignal):
     { signal }
   )
   return JSON.parse(json) as FfprobeOutput
+}
+
+async function runFrameProbe(binaries: Binaries, path: string, streamIndex: number, signal?: AbortSignal): Promise<FfprobeFramesOutput> {
+  const json = await capture(
+    binaries.ffprobe,
+    ['-v', 'error', '-print_format', 'json', '-select_streams', String(streamIndex), '-read_intervals', '%+#1', '-show_entries', 'frame=side_data_list', '-show_frames', path],
+    { signal }
+  )
+  return JSON.parse(json) as FfprobeFramesOutput
 }
 
 export function parseProbeOutput(output: FfprobeOutput, path: string): SourceInfo {
@@ -124,8 +157,38 @@ function parseVideo(stream: FfprobeStream, ctx: BitrateContext): SourceVideo {
     fps: pickFrameRate(stream),
     bitrate: estimated,
     bitrateEstimated: declared === null,
-    pixelFormat: stream.pix_fmt ?? null
+    pixelFormat: stream.pix_fmt ?? null,
+    hdr: parseHdr(stream)
   }
+}
+
+// HDR is signalled by the transfer function (PQ or HLG); primaries and matrix
+// default to BT.2020 when the stream does not say
+function parseHdr(stream: FfprobeStream): SourceHdr | null {
+  const colorTransfer = stream.color_transfer ?? ''
+  const transfer = HDR_TRANSFERS[colorTransfer]
+  if (!transfer) return null
+  const dolby = stream.side_data_list?.find((s) => s.side_data_type === 'DOVI configuration record')
+  return {
+    transfer,
+    colorTransfer,
+    colorPrimaries: stream.color_primaries ?? 'bt2020',
+    colorSpace: stream.color_space ?? 'bt2020nc',
+    peakNits: DEFAULT_HDR_PEAK_NITS,
+    dolbyVisionProfile: typeof dolby?.dv_profile === 'number' ? dolby.dv_profile : null
+  }
+}
+
+// MaxCLL is the brightest pixel actually in the content; the mastering display
+// peak is the ceiling it was graded on. Either beats the default.
+export function parseHdrPeak(output: FfprobeFramesOutput): number {
+  const sideData = output.frames?.[0]?.side_data_list ?? []
+  const light = sideData.find((s) => s.side_data_type === 'Content light level metadata')
+  if (typeof light?.max_content === 'number' && light.max_content > 0) return light.max_content
+  const mastering = sideData.find((s) => s.side_data_type === 'Mastering display metadata')
+  const peak = parseFraction(mastering?.max_luminance)
+  if (peak && peak.den > 0 && peak.num > 0) return Math.round(peak.num / peak.den)
+  return DEFAULT_HDR_PEAK_NITS
 }
 
 // MKV rarely carries per-stream bitrates: fall back to container bitrate minus the audio we know about

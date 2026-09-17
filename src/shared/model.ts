@@ -16,6 +16,8 @@ export interface Title {
   source_video_bitrate: number | null
   source_fps: number | null
   source_video_codec: string | null
+  // 'pq' | 'hlg' for HDR sources, which are tone-mapped to SDR on output
+  source_hdr: string | null
   duration_seconds: number | null
   output_folder: string
   // True when the source file was uploaded through the API and is ours to delete

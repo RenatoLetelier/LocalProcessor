@@ -106,6 +106,7 @@ export function Api() {
         source_width: 1920,
         source_height: 1080,
         source_video_codec: 'h264',
+        source_hdr: null,
         source_fps: 23.976,
         source_video_bitrate: 8500000,
         duration_seconds: 5400,

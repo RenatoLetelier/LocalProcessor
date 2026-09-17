@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseFraction, parseProbeOutput, parseTimecode, type FfprobeOutput } from '../probe'
+import { DEFAULT_HDR_PEAK_NITS, parseFraction, parseHdrPeak, parseProbeOutput, parseTimecode, type FfprobeOutput, type FfprobeStream } from '../probe'
 
 // Trimmed ffprobe -show_format -show_streams output of a typical MKV rip
 const mkv: FfprobeOutput = {
@@ -124,5 +124,54 @@ describe('parseProbeOutput', () => {
   it('rejects files without a video stream or duration', () => {
     expect(() => parseProbeOutput({ streams: [mkv.streams![2]!], format: mkv.format }, 'x')).toThrow(/pista de video/)
     expect(() => parseProbeOutput({ streams: [mkv.streams![1]!], format: {} }, 'x')).toThrow(/duración/)
+  })
+})
+
+describe('HDR detection', () => {
+  const hdrStream: FfprobeStream = {
+    index: 0,
+    codec_type: 'video',
+    codec_name: 'hevc',
+    width: 3840,
+    height: 2160,
+    r_frame_rate: '24000/1001',
+    pix_fmt: 'yuv420p10le',
+    color_transfer: 'smpte2084',
+    color_primaries: 'bt2020',
+    color_space: 'bt2020nc',
+    side_data_list: [{ side_data_type: 'DOVI configuration record', dv_profile: 8 }]
+  }
+  const probe = (over: Partial<FfprobeStream>) => parseProbeOutput({ streams: [{ ...hdrStream, ...over }], format: { duration: '100' } }, 'x.mkv')
+
+  it('recognises PQ and HLG transfers, carrying the colour signalling and the Dolby Vision profile', () => {
+    expect(probe({}).video.hdr).toEqual({
+      transfer: 'pq',
+      colorTransfer: 'smpte2084',
+      colorPrimaries: 'bt2020',
+      colorSpace: 'bt2020nc',
+      peakNits: DEFAULT_HDR_PEAK_NITS,
+      dolbyVisionProfile: 8
+    })
+    expect(probe({ color_transfer: 'arib-std-b67', side_data_list: [] }).video.hdr).toMatchObject({ transfer: 'hlg', dolbyVisionProfile: null })
+  })
+
+  it('assumes BT.2020 when an HDR stream omits primaries or matrix', () => {
+    expect(probe({ color_primaries: undefined, color_space: undefined }).video.hdr).toMatchObject({ colorPrimaries: 'bt2020', colorSpace: 'bt2020nc' })
+  })
+
+  it('treats anything else, tagged or untagged, as SDR', () => {
+    expect(probe({ color_transfer: 'bt709', color_primaries: 'bt709', color_space: 'bt709' }).video.hdr).toBeNull()
+    expect(probe({ color_transfer: undefined }).video.hdr).toBeNull()
+    expect(parseProbeOutput(mkv, 'x').video.hdr).toBeNull()
+  })
+
+  it('takes the peak from MaxCLL, then the mastering display, then the default', () => {
+    const mastering = { side_data_type: 'Mastering display metadata', max_luminance: '10000000/10000' }
+    const light = { side_data_type: 'Content light level metadata', max_content: 449 }
+    expect(parseHdrPeak({ frames: [{ side_data_list: [mastering, light] }] })).toBe(449)
+    expect(parseHdrPeak({ frames: [{ side_data_list: [mastering] }] })).toBe(1000)
+    expect(parseHdrPeak({ frames: [{ side_data_list: [{ ...light, max_content: 0 }, { ...mastering, max_luminance: '4000000/10000' }] }] })).toBe(400)
+    expect(parseHdrPeak({ frames: [{}] })).toBe(DEFAULT_HDR_PEAK_NITS)
+    expect(parseHdrPeak({})).toBe(DEFAULT_HDR_PEAK_NITS)
   })
 })

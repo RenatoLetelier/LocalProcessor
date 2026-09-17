@@ -36,6 +36,14 @@ export function encoderGlobalArgs(kind: EncoderKind): string[] {
   return kind === 'h264_vaapi' ? ['-vaapi_device', VAAPI_DEVICE] : []
 }
 
+// Decoder options placed before the title input. NVENC machines also decode on the
+// GPU (NVDEC), which frees the CPU for the filters; frames stay in system memory
+// so the filter graph is the same, and ffmpeg falls back to software decoding by
+// itself when NVDEC does not support the source (it logs "Failed setup for format cuda").
+export function encoderInputArgs(kind: EncoderKind): string[] {
+  return kind === 'h264_nvenc' ? ['-hwaccel', 'cuda'] : []
+}
+
 // Filter tail appended after scaling: VAAPI encodes from GPU surfaces
 export function encoderFilterSuffix(kind: EncoderKind): string {
   return kind === 'h264_vaapi' ? ',format=nv12,hwupload' : ''
