@@ -9,7 +9,8 @@ export type JobTipo = 'inicial' | 'agregar_calidad' | 'agregar_pista' | 'reproce
 export interface Title {
   id: string
   name: string
-  source_path: string
+  // null for titles imported from the output folder until a source file is linked
+  source_path: string | null
   source_hash: string | null
   source_width: number | null
   source_height: number | null

@@ -151,17 +151,19 @@ describe.skipIf(!binaries)('pipeline (integration)', () => {
         { label: '720p', width: 1280, height: 534, codec: 'h264', path: 'video/720p' },
         { label: '480p', width: 854, height: 356, codec: 'h264', path: 'video/480p' }
       ],
+      source: { path: join(root, 'sample.mkv'), width: 1920, height: 800, codec: 'h264' },
       audioTracks: [
-        { id: '1_es_aac', language: 'es', codec: 'aac', channels: 2, path: 'audio/1_es_aac' },
-        { id: '2_en_aac', language: 'en', codec: 'aac', channels: 6, path: 'audio/2_en_aac' },
-        { id: '3_fr_ac3', language: 'fr', codec: 'ac3', channels: 2, path: 'audio/3_fr_ac3' },
-        { id: '3_fr_aac', language: 'fr', name: 'Français', codec: 'aac', channels: 2, path: 'audio/3_fr_aac' }
+        { id: '1_es_aac', language: 'es', codec: 'aac', channels: 2, path: 'audio/1_es_aac', sourceIndex: 1, sourceCodec: 'aac' },
+        { id: '2_en_aac', language: 'en', codec: 'aac', channels: 6, path: 'audio/2_en_aac', sourceIndex: 2, sourceCodec: 'dts' },
+        { id: '3_fr_ac3', language: 'fr', codec: 'ac3', channels: 2, path: 'audio/3_fr_ac3', sourceIndex: 3, sourceCodec: 'ac3' },
+        { id: '3_fr_aac', language: 'fr', name: 'Français', codec: 'aac', channels: 2, path: 'audio/3_fr_aac', sourceIndex: 3, sourceCodec: 'ac3' }
       ],
       subtitleTracks: [
-        { id: '4_es', language: 'es', name: 'Español', format: 'vtt', forced: false, path: 'subs/4_es' },
-        { id: '5_en', language: 'en', name: 'Forced', format: 'vtt', forced: true, path: 'subs/5_en' }
+        { id: '4_es', language: 'es', name: 'Español', format: 'vtt', forced: false, path: 'subs/4_es', sourceIndex: 4, sourceFormat: 'subrip' },
+        { id: '5_en', language: 'en', name: 'Forced', format: 'vtt', forced: true, path: 'subs/5_en', sourceIndex: 5, sourceFormat: 'ass' }
       ]
     })
+    expect(metadata.source.fps).toBeCloseTo(23.976, 3)
     expect(metadata.dynamicRange).toEqual({ source: 'sdr', output: 'sdr' })
     expect(metadata.durationSeconds).toBeCloseTo(6, 0)
     expect(metadata.segmentDurationSeconds).toBeCloseTo(2.002, 3)

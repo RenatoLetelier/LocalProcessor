@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Binaries } from '@pipeline/types'
 import type { HardwareInfo } from '@pipeline/hardware'
 import type { Repositories } from './db/repositories'
@@ -8,6 +9,7 @@ import type { JobRunner } from './jobs/runner'
 
 // Everything the routes need, built once by the host (Electron main or tests)
 export interface ServerContext {
+  db: DatabaseSync
   repos: Repositories
   events: ServerEvents
   runner: JobRunner

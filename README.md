@@ -60,6 +60,9 @@ subs/<pista>/          seg_00001.vtt…, playlist.m3u8
 
 Los manifiestos y `metadata.json` se reemplazan siempre con un archivo temporal y
 un *rename* atómico: un consumidor externo nunca ve un archivo a medio escribir.
+La carpeta basta para reconstruir la biblioteca: al elegirla, o con *Buscar
+títulos en la carpeta* en la Biblioteca, la aplicación importa los títulos que
+encuentre y revincula los que hayan cambiado de sitio.
 Las carpetas `.tmp/` y `.uploads/` dentro de la carpeta de salida son de uso
 interno.
 
@@ -70,6 +73,8 @@ interno.
 | `POST` | `/titles` | Registra un archivo (`{ "sourcePath": "C:/peli.mkv" }` o multipart `file`) y lo encola |
 | `GET` | `/titles`, `/titles/:id`, `/titles/:id/files` | Títulos, detalle y árbol de archivos publicado |
 | `DELETE` | `/titles/:id` | Elimina el título y su carpeta |
+| `POST` | `/titles/import` | Importa los títulos publicados en la carpeta de salida que no estén en la biblioteca |
+| `PUT` | `/titles/:id/source` | Vincula el archivo de origen de un título (`{ "sourcePath": … }`) |
 | `POST` | `/titles/:id/reprocess` | `{ tipo: "agregar_calidad" \| "agregar_pista" \| "reprocesar_completo", … }` |
 | `GET` | `/jobs`, `/jobs/:id` | Cola e historial |
 | `POST` | `/jobs/:id/cancel` | Cancela un job |

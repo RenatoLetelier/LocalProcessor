@@ -195,10 +195,13 @@ export class JobRunner {
         if (updated) events.emit({ type: 'job.progress', job: updated })
       }
     }
-    const base = { titleId: title.id, name: title.name, sourcePath: title.source_path, outputRoot: config.outputFolder }
     const encoder = resolveEncoder(config.encoder ?? 'auto', this.deps.hardware ?? null)
 
     try {
+      // Jobs are only ever queued for titles with a source; an imported title must link one first
+      if (!title.source_path) throw new Error('El título no tiene archivo de origen vinculado')
+      const sourcePath = title.source_path
+      const base = { titleId: title.id, name: title.name, sourcePath, outputRoot: config.outputFolder }
       let result: PipelineResult
       if (job.tipo === 'inicial' || job.tipo === 'reprocesar_completo') {
         result = await this.withSoftwareFallback(job, encoder, hooks, (videoEncoder) =>
@@ -217,10 +220,10 @@ export class JobRunner {
         )
         recordResult(repos, this.deps.db, result)
         // A full reprocess is the one job allowed to adopt a replaced source file
-        if (job.tipo === 'reprocesar_completo') repos.titles.update(title.id, { source_hash: await sourceHash(title.source_path) })
+        if (job.tipo === 'reprocesar_completo') repos.titles.update(title.id, { source_hash: await sourceHash(sourcePath) })
       } else {
         // Mixing renditions of two different files would corrupt the title
-        if (title.source_hash && (await sourceHash(title.source_path)) !== title.source_hash) {
+        if (title.source_hash && (await sourceHash(sourcePath)) !== title.source_hash) {
           throw new Error('El archivo de origen cambió desde el procesado inicial; usa el reprocesado completo')
         }
         result = await this.withSoftwareFallback(job, encoder, hooks, (videoEncoder) =>

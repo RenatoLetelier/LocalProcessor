@@ -46,6 +46,15 @@ export async function buildMetadata(input: MetadataInput): Promise<TitleMetadata
     manifests,
     segmentDurationSeconds: plan.actualSegmentSeconds,
     dynamicRange: { source: source.video.hdr?.transfer ?? 'sdr', output: 'sdr' },
+    source: {
+      path: source.path,
+      sizeBytes: source.sizeBytes,
+      width: source.video.displayWidth,
+      height: source.video.displayHeight,
+      fps: source.video.fps.num / source.video.fps.den,
+      codec: source.video.codec,
+      bitrate: source.video.bitrate
+    },
     renditions,
     audioTracks: plan.audio.map((audio) => ({
       id: audioTrackId(audio),
@@ -53,7 +62,9 @@ export async function buildMetadata(input: MetadataInput): Promise<TitleMetadata
       name: audio.name,
       codec: audio.outputCodec,
       channels: audio.channels,
-      path: audioDir(audio)
+      path: audioDir(audio),
+      sourceIndex: audio.sourceIndex,
+      sourceCodec: audio.sourceCodec
     })),
     subtitleTracks: plan.subtitles.map((subtitle) => ({
       id: subtitleTrackId(subtitle),
@@ -61,7 +72,9 @@ export async function buildMetadata(input: MetadataInput): Promise<TitleMetadata
       name: subtitle.name,
       format: SUBTITLE_FORMAT,
       forced: subtitle.forced,
-      path: subtitleDir(subtitle)
+      path: subtitleDir(subtitle),
+      sourceIndex: subtitle.sourceIndex,
+      sourceFormat: subtitle.sourceCodec
     })),
     updatedAt: new Date().toISOString()
   }

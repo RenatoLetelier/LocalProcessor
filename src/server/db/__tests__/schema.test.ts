@@ -1,6 +1,8 @@
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { openDatabase } from '..'
 import { runMigrations } from '../migrate'
+import { migrations } from '../migrations'
 
 function tableNames(db: ReturnType<typeof openDatabase>['db']): string[] {
   return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]).map(
@@ -26,7 +28,31 @@ describe('schema', () => {
     const { db } = openDatabase(':memory:')
     expect(runMigrations(db)).toEqual([])
     const versions = db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }])
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }])
+  })
+
+  it('makes source_path nullable in migration 6 without losing rows or the cascades', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    runMigrations(db, migrations.filter((m) => m.version <= 5))
+    db.exec(`
+      INSERT INTO titles (id, name, source_path, source_managed, output_folder, status, created_at, updated_at)
+        VALUES ('t1', 'Movie', 'C:/in/movie.mkv', 0, 'C:/out/t1', 'done', 'now', 'now');
+      INSERT INTO renditions (id, title_id, label, width, height, bitrate, video_codec, status)
+        VALUES ('r1', 't1', '720p', 1280, 720, 3000000, 'h264', 'done');
+      INSERT INTO jobs (id, title_id, tipo, status, config_json, created_at) VALUES ('j1', 't1', 'inicial', 'done', '{}', 'now');
+    `)
+
+    expect(runMigrations(db)).toEqual([6])
+    expect(db.prepare('SELECT source_path FROM titles WHERE id = ?').get('t1')).toEqual({ source_path: 'C:/in/movie.mkv' })
+    expect(db.prepare('SELECT count(*) AS n FROM renditions').get()).toEqual({ n: 1 })
+    expect(db.prepare('SELECT count(*) AS n FROM jobs').get()).toEqual({ n: 1 })
+    expect(db.prepare("SELECT name FROM pragma_table_info('titles') WHERE name LIKE 'source_path%'").all()).toEqual([{ name: 'source_path' }])
+
+    db.exec("INSERT INTO titles (id, name, source_path, source_managed, output_folder, status, created_at, updated_at) VALUES ('t2', 'Imported', NULL, 0, 'C:/out/t2', 'done', 'now', 'now')")
+    db.exec("DELETE FROM titles WHERE id = 't1'")
+    expect(db.prepare('SELECT count(*) AS n FROM renditions').get()).toEqual({ n: 0 })
+    expect(db.prepare('SELECT count(*) AS n FROM jobs').get()).toEqual({ n: 0 })
   })
 
   it('deletes renditions, tracks and jobs together with their title', () => {

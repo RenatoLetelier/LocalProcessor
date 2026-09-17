@@ -184,9 +184,10 @@ describe('mergeMetadata', () => {
     standards: ['hls'],
     manifests: { hls: 'master.m3u8' },
     dynamicRange: { source: 'sdr', output: 'sdr' },
+    source: { path: 'C:/in/t.mkv', sizeBytes: 1, width: 1920, height: 800, fps: 24, codec: 'h264', bitrate: null },
     segmentDurationSeconds: 6,
     renditions: [{ label: '720p', width: 1280, height: 534, bitrate: 1, maxBitrate: 2, codec: 'h264', path: 'video/720p' }],
-    audioTracks: [{ id: '1_es_aac', language: 'es', name: 'Español', codec: 'aac', channels: 2, path: 'audio/1_es_aac' }],
+    audioTracks: [{ id: '1_es_aac', language: 'es', name: 'Español', codec: 'aac', channels: 2, path: 'audio/1_es_aac', sourceIndex: 1, sourceCodec: 'aac' }],
     subtitleTracks: [],
     updatedAt: '2026-01-01T00:00:00.000Z'
   }
@@ -195,7 +196,7 @@ describe('mergeMetadata', () => {
     const merged = mergeMetadata(base, {
       ...base,
       renditions: [base.renditions[0]!, { label: '480p', width: 854, height: 356, bitrate: 1, maxBitrate: 2, codec: 'h264', path: 'video/480p' }],
-      subtitleTracks: [{ id: 'e1_de', language: 'de', name: 'Deutsch', format: 'vtt', forced: false, path: 'subs/e1_de' }]
+      subtitleTracks: [{ id: 'e1_de', language: 'de', name: 'Deutsch', format: 'vtt', forced: false, path: 'subs/e1_de', sourceIndex: -1, sourceFormat: 'subrip' }]
     })
     expect(merged.renditions.map((r) => r.label)).toEqual(['720p', '480p'])
     expect(merged.audioTracks).toHaveLength(1)

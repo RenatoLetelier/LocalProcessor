@@ -59,7 +59,7 @@ erDiagram
 
     TITLES {
         string id PK
-        string source_path
+        string source_path "NULL en títulos importados sin origen"
         string source_hash
         int source_width
         int source_height
@@ -123,6 +123,8 @@ Notas:
 | GET | `/titles` | Lista todos los títulos, con su estado actual |
 | GET | `/titles/:id` | Detalle de un título: renditions, pistas de audio/subtítulos, estado |
 | POST | `/titles/:id/reprocess` | Dispara un reprocesado incremental (`agregar_calidad`, `agregar_pista`, `reprocesar_completo`) |
+| POST | `/titles/import` | Recorre la carpeta de salida: importa los títulos publicados que no estén en la base y revincula los que cambiaron de carpeta; devuelve `{ imported, relinked, skipped }` |
+| PUT | `/titles/:id/source` | Vincula (o reemplaza) el archivo de origen de un título: `{ sourcePath }`, validado con ffprobe y por duración |
 | DELETE | `/titles/:id` | Elimina un título y su carpeta de salida |
 | GET | `/jobs` | Lista jobs activos y en cola |
 | GET | `/jobs/:id` | Detalle/progreso de un job específico |
@@ -219,12 +221,15 @@ Archivo generado junto al manifiesto, pensado para que un sistema externo (ej. L
   "duration": 0,
   "standard": ["hls", "dash"],
   "dynamicRange": { "source": "sdr | pq | hlg", "output": "sdr" },
+  "source": { "path": "string", "sizeBytes": 0, "width": 0, "height": 0, "fps": 0, "codec": "string", "bitrate": 0 },
   "renditions": [{ "width": 0, "height": 0, "bitrate": 0 }],
-  "audioTracks": [{ "language": "string", "codec": "string", "channels": 0 }],
-  "subtitleTracks": [{ "language": "string", "format": "string" }],
+  "audioTracks": [{ "language": "string", "codec": "string", "channels": 0, "sourceIndex": 0, "sourceCodec": "string" }],
+  "subtitleTracks": [{ "language": "string", "format": "string", "sourceIndex": 0, "sourceFormat": "string" }],
   "updatedAt": "ISO-8601"
 }
 ```
+
+El bloque `source` y los campos `sourceIndex`/`sourceCodec`/`sourceFormat` hacen que la carpeta baste para reconstruir la biblioteca (`POST /titles/import`): un título importado recupera nombre, duración, calidades y pistas; si el archivo de origen sigue en su ruta, también su huella (`source_hash`). Los `metadata.json` anteriores a estos campos se importan igualmente, tomando el índice de origen del identificador de pista (`3_es_aac`, `e1_fr` = pista externa) y sin archivo de origen hasta que el usuario lo vincule.
 
 ## 10. Concurrencia y aceleración por hardware
 

@@ -5,7 +5,7 @@ import { newId, now, updateColumns } from './common'
 export interface NewTitle {
   id?: string
   name: string
-  source_path: string
+  source_path?: string | null
   source_managed?: boolean
   output_folder: string
   status?: TitleStatus
@@ -64,7 +64,7 @@ export function createTitlesRepository(db: DatabaseSync): TitlesRepository {
       insert.run({
         id,
         name: input.name,
-        source_path: input.source_path,
+        source_path: input.source_path ?? null,
         source_managed: input.source_managed ? 1 : 0,
         output_folder: input.output_folder,
         status: input.status ?? 'queued',

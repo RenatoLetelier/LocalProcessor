@@ -550,6 +550,12 @@ code {
   color: var(--error);
 }
 
+.alert--info {
+  background: var(--accent-soft);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--panel-fg);
+}
+
 .alert--warn {
   margin: 12px 28px 0;
   background: var(--warn-soft);

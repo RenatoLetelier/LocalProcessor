@@ -42,6 +42,13 @@ export interface CreateTitleResponse {
   job: Job
 }
 
+// Result of scanning the output folder for titles published earlier
+export interface ImportSummary {
+  imported: Title[]
+  relinked: Title[]
+  skipped: { folder: string; reason: string }[]
+}
+
 export type ServerEvent =
   | { type: 'snapshot'; jobs: Job[] }
   | { type: 'job.progress'; job: Job }

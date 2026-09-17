@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   const serverOptions: Omit<ServerOptions, 'host'> = {
     port: apiPort,
     version: app.getVersion(),
-    context: { repos: database.repos, events, runner, binaries, hardware },
+    context: { db: database.db, repos: database.repos, events, runner, binaries, hardware },
     allowedOrigins: [rendererOrigin()],
     logLevel: is.dev ? 'info' : 'warn'
   }

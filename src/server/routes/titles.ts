@@ -1,11 +1,13 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { randomUUID } from 'node:crypto'
-import { rm } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import type { Standard } from '@shared/config'
 import type { ServerContext } from '../context'
 import { HttpError, badRequest, notFound } from '../errors'
 import type { ConfigOverrides } from '../jobs/config'
 import { enqueueTitle } from '../jobs/enqueue'
+import { importOutputFolder } from '../jobs/import'
+import { linkSource } from '../jobs/link-source'
 import { saveUpload, uploadPath } from '../jobs/uploads'
 import { readFolderTree } from '../jobs/folder-tree'
 import { enqueueReprocess, type ReprocessRequest } from '../jobs/reprocess'
@@ -76,6 +78,21 @@ export const titlesRoutes: FastifyPluginAsync<{ context: ServerContext }> = asyn
 
   app.get('/titles', async () => repos.titles.list())
 
+  // Rebuilds the library from the output folder (titles published earlier, moved folders)
+  app.post('/titles/import', async () => {
+    const { outputFolder } = repos.settings.getConfig()
+    if (!outputFolder) throw new HttpError(409, 'Configura la carpeta de salida antes de importar')
+    if (!(await stat(outputFolder).catch(() => undefined))?.isDirectory()) throw new HttpError(409, `La carpeta de salida no existe: ${outputFolder}`)
+    return importOutputFolder({ db: context.db, repos, events }, outputFolder)
+  })
+
+  // Attaches the source file to a title (imported titles have none until then)
+  app.put<{ Params: { id: string }; Body: { sourcePath: string } }>(
+    '/titles/:id/source',
+    { schema: { body: { type: 'object', required: ['sourcePath'], additionalProperties: false, properties: { sourcePath: { type: 'string', minLength: 1 } } } } },
+    async (request) => linkSource(context, request.params.id, request.body.sourcePath)
+  )
+
   app.get<{ Params: { id: string } }>('/titles/:id', async (request) => {
     const title = repos.titles.get(request.params.id)
     if (!title) throw notFound('Título no encontrado')
@@ -101,7 +118,7 @@ export const titlesRoutes: FastifyPluginAsync<{ context: ServerContext }> = asyn
 
     await runner.cancelForTitle(title.id)
     await rm(title.output_folder, { recursive: true, force: true })
-    if (title.source_managed) await rm(title.source_path, { force: true })
+    if (title.source_managed && title.source_path) await rm(title.source_path, { force: true })
     repos.titles.remove(title.id)
     events.emit({ type: 'title.deleted', titleId: title.id })
     return reply.code(204).send()

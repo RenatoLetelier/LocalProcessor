@@ -1,6 +1,6 @@
 import type { AppConfig } from '@shared/config'
 import { bridge } from '@/lib/bridge'
-import type { CreateTitleResponse, HealthResponse, ReprocessRequest, SystemInfo, TitleDetail, TitleFilesResponse } from '@shared/api'
+import type { CreateTitleResponse, HealthResponse, ImportSummary, ReprocessRequest, SystemInfo, TitleDetail, TitleFilesResponse } from '@shared/api'
 import type { Job, JobStatus, Title } from '@shared/model'
 
 let baseUrlPromise: Promise<string> | undefined
@@ -44,6 +44,8 @@ export const api = {
   getTitle: (id: string) => request<TitleDetail>(`/titles/${id}`),
   getTitleFiles: (id: string) => request<TitleFilesResponse>(`/titles/${id}/files`),
   deleteTitle: (id: string) => request<void>(`/titles/${id}`, { method: 'DELETE' }),
+  importTitles: () => request<ImportSummary>('/titles/import', { method: 'POST' }),
+  linkTitleSource: (id: string, sourcePath: string) => request<Title>(`/titles/${id}/source`, { method: 'PUT', body: JSON.stringify({ sourcePath }) }),
   reprocessTitle: (id: string, body: ReprocessRequest) =>
     request<CreateTitleResponse>(`/titles/${id}/reprocess`, { method: 'POST', body: JSON.stringify(body) }),
   createTitle: (sourcePath: string, name?: string) =>

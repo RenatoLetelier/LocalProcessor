@@ -48,6 +48,7 @@ export async function enqueueReprocess(deps: ReprocessDeps, titleId: string, req
 
   const active = repos.jobs.listByTitle(title.id).some((j) => j.status === 'queued' || j.status === 'running')
   if (active || title.status === 'processing') throw conflict('El título ya tiene un job en curso o en cola')
+  if (!title.source_path) throw conflict('El título fue importado sin archivo de origen: vincúlalo antes de reprocesar')
   if (!(await stat(title.source_path).catch(() => undefined))?.isFile()) {
     throw badRequest(`El archivo de origen ya no existe: ${title.source_path}`)
   }

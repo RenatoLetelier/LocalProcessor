@@ -13,11 +13,12 @@ const STANDARDS: { id: Standard; label: string; hint: string }[] = [
 ]
 
 export function Settings() {
-  const { config, saveConfig, regenerateApiToken } = useAppState()
+  const { config, saveConfig, regenerateApiToken, importTitles } = useAppState()
   const [draft, setDraft] = useState<AppConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [imported, setImported] = useState<string | null>(null)
   const [system, setSystem] = useState<SystemInfo | null>(null)
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null)
 
@@ -38,6 +39,7 @@ export function Settings() {
   const update = (patch: Partial<AppConfig>): void => {
     setDraft({ ...draft, ...patch })
     setSaved(false)
+    setImported(null)
     setServerError(null)
   }
 
@@ -82,6 +84,11 @@ export function Settings() {
       }
       await saveConfig(patch)
       setSaved(true)
+      if (patch.outputFolder) {
+        const summary = await importTitles()
+        const found = summary.imported.length + summary.relinked.length
+        setImported(found > 0 ? `${found} ${found === 1 ? 'título encontrado' : 'títulos encontrados'} en la carpeta` : null)
+      }
     } catch (error) {
       setServerError(error instanceof ApiError ? error.message : String(error))
     } finally {
@@ -275,7 +282,7 @@ export function Settings() {
         <button type="button" className="btn" disabled={!dirty || saving} onClick={() => setDraft(structuredClone(config))}>
           Descartar
         </button>
-        {saved && !dirty && <span className="muted">Guardado ✓</span>}
+        {saved && !dirty && <span className="muted">Guardado ✓{imported ? ` · ${imported}` : ''}</span>}
       </div>
     </div>
   )

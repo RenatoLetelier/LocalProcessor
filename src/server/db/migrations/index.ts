@@ -3,6 +3,7 @@ import * as jobsAttempts from './002-jobs-attempts'
 import * as externalTracks from './003-external-tracks'
 import * as audioCompanions from './004-audio-companions'
 import * as titleHdr from './005-title-hdr'
+import * as nullableSourcePath from './006-nullable-source-path'
 
 export interface Migration {
   version: number
@@ -15,5 +16,6 @@ export const migrations: Migration[] = [
   { version: 2, ...jobsAttempts },
   { version: 3, ...externalTracks },
   { version: 4, ...audioCompanions },
-  { version: 5, ...titleHdr }
+  { version: 5, ...titleHdr },
+  { version: 6, ...nullableSourcePath }
 ]

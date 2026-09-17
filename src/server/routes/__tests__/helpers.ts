@@ -96,6 +96,7 @@ export function fakePipeline(options: FakePipelineOptions = {}): PipelineFn {
       standards: input.standards,
       manifests: { hls: 'master.m3u8' },
       dynamicRange: { source: 'sdr', output: 'sdr' },
+      source: { path: input.sourcePath, sizeBytes: 1, width: 1920, height: 800, fps: 24, codec: 'h264', bitrate: null },
       segmentDurationSeconds: plan.actualSegmentSeconds,
       renditions: plan.renditions.map((r) => ({
         label: r.label,
@@ -150,6 +151,7 @@ export function fakeIncremental(options: FakePipelineOptions = {}): IncrementalF
       standards: ['hls'],
       manifests: { hls: 'master.m3u8' },
       dynamicRange: { source: 'sdr', output: 'sdr' },
+      source: { path: input.sourcePath, sizeBytes: 1, width: 1920, height: 800, fps: 24, codec: 'h264', bitrate: null },
       segmentDurationSeconds: 6,
       renditions: plan.renditions.map((r) => ({ label: r.label, width: r.width, height: r.height, bitrate: 1, maxBitrate: 1, codec: 'h264', path: `video/${r.label}` })),
       audioTracks: [],
@@ -192,7 +194,7 @@ export async function createTestServer(
     host: '127.0.0.1',
     port: 0,
     version: 'test',
-    context: { repos: db.repos, events, runner, binaries: FAKE_BINARIES, hardware: options.hardware ?? null, probe: options.probe ?? fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
+    context: { db: db.db, repos: db.repos, events, runner, binaries: FAKE_BINARIES, hardware: options.hardware ?? null, probe: options.probe ?? fakeProbe, probeTracks: fakeProbeTracks, checkDiskSpace: false },
     allowedOrigins,
     logLevel: 'silent'
   })

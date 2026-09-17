@@ -5,7 +5,7 @@ import { useAppState } from '@/state/AppState'
 
 // Blocks the app until the output folder exists: nothing else makes sense without it
 export function FirstRun() {
-  const { saveConfig } = useAppState()
+  const { saveConfig, importTitles } = useAppState()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -16,6 +16,8 @@ export function FirstRun() {
     setError(null)
     try {
       await saveConfig({ outputFolder: folder })
+      // A folder that already holds published titles becomes the library right away
+      await importTitles().catch(() => undefined)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     } finally {

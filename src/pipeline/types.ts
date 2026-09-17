@@ -228,10 +228,22 @@ export interface TitleMetadata {
   segmentDurationSeconds: number
   // What the source was graded in and what the renditions carry (always SDR for now)
   dynamicRange: { source: 'sdr' | HdrTransfer; output: 'sdr' }
+  // Where the title came from, so a library can be rebuilt from the folder alone
+  source: MetadataSource
   renditions: MetadataRendition[]
   audioTracks: MetadataAudioTrack[]
   subtitleTracks: MetadataSubtitleTrack[]
   updatedAt: string
+}
+
+export interface MetadataSource {
+  path: string
+  sizeBytes: number
+  width: number
+  height: number
+  fps: number
+  codec: string
+  bitrate: number | null
 }
 
 export interface MetadataRendition {
@@ -252,6 +264,9 @@ export interface MetadataAudioTrack {
   codec: string
   channels: number
   path: string
+  // Stream index in the source (negative for external files) and its codec there
+  sourceIndex: number
+  sourceCodec: string
 }
 
 export interface MetadataSubtitleTrack {
@@ -261,4 +276,6 @@ export interface MetadataSubtitleTrack {
   format: string
   forced: boolean
   path: string
+  sourceIndex: number
+  sourceFormat: string
 }

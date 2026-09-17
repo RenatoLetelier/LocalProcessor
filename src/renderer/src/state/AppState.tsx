@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AppConfig } from '@shared/config'
-import type { CreateTitleResponse, ServerEvent } from '@shared/api'
+import type { CreateTitleResponse, ImportSummary, ServerEvent } from '@shared/api'
 import type { Job, Title } from '@shared/model'
 import { api, apiBaseUrl } from '@/lib/api'
 
@@ -20,6 +20,8 @@ export interface AppState {
   enqueue: (sourcePath: string, name?: string) => Promise<CreateTitleResponse>
   cancelJob: (id: string) => Promise<void>
   deleteTitle: (id: string) => Promise<void>
+  importTitles: () => Promise<ImportSummary>
+  linkSource: (id: string, sourcePath: string) => Promise<Title>
 }
 
 const AppStateContext = createContext<AppState | null>(null)
@@ -118,6 +120,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return updated
   }, [])
 
+  const importTitles = useCallback(async () => {
+    const summary = await api.importTitles()
+    setTitles((list) => [...summary.imported, ...summary.relinked].reduce(upsert, list))
+    return summary
+  }, [])
+
+  const linkSource = useCallback(async (id: string, sourcePath: string) => {
+    const title = await api.linkTitleSource(id, sourcePath)
+    setTitles((list) => upsert(list, title))
+    return title
+  }, [])
+
   const regenerateApiToken = useCallback(async () => {
     const updated = await api.regenerateApiToken()
     setConfig(updated)
@@ -143,8 +157,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AppState>(
-    () => ({ connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, regenerateApiToken, enqueue, cancelJob, deleteTitle }),
-    [connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, regenerateApiToken, enqueue, cancelJob, deleteTitle]
+    () => ({ connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, regenerateApiToken, enqueue, cancelJob, deleteTitle, importTitles, linkSource }),
+    [connection, apiVersion, ready, loadError, config, titles, jobs, reload, saveConfig, regenerateApiToken, enqueue, cancelJob, deleteTitle, importTitles, linkSource]
   )
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>

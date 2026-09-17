@@ -43,6 +43,7 @@ No es un reproductor ni una plataforma de streaming en sí mismo — es el motor
 ### 3.5 Empaquetado
 - El resultado se organiza en una carpeta por título, con subcarpetas por calidad y un manifiesto raíz (`master.m3u8` y/o `.mpd` según configuración).
 - Se genera un archivo adicional `metadata.json` por título, con la lista de calidades, pistas de audio (idioma, códec) y pistas de subtítulos (idioma, formato) disponibles — para que un sistema externo no necesite parsear el manifiesto de streaming para saber qué contenido hay disponible.
+- La carpeta de salida es recuperable: al elegirla (primer arranque o cambio en Configuración) y con *Buscar títulos en la carpeta* en la Biblioteca, el programa importa los títulos publicados que encuentre (`<uuid>/metadata.json` válido) y revincula los que se movieron de sitio. Un título importado de una carpeta antigua no conoce su archivo original; *Vincular archivo de origen* lo recupera (se comprueba que la duración coincida) y vuelve a permitir reprocesarlo.
 
 ### 3.6 Gestión de jobs
 - Vista en tiempo real de los jobs: cuál está activo (con progreso) y cuáles están en cola.

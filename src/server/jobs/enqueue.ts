@@ -7,6 +7,7 @@ import { ProbeError, probeSource } from '@pipeline/probe'
 import { ProcessError } from '@pipeline/exec'
 import type { Binaries, SourceInfo } from '@pipeline/types'
 import type { Repositories } from '../db/repositories'
+import type { TitlePatch } from '../db/repositories/titles'
 import { badRequest, conflict } from '../errors'
 import { snapshotJobConfig, type ConfigOverrides } from './config'
 import { estimatePeakBytes, formatBytes, freeBytes } from './estimate'
@@ -14,6 +15,19 @@ import type { ServerEvents } from './events'
 import { sourceHash } from './source-hash'
 
 export type Prober = (binaries: Binaries, path: string) => Promise<SourceInfo>
+
+// What a title remembers about its source file
+export function sourceFields(source: SourceInfo): TitlePatch {
+  return {
+    source_width: source.video.displayWidth,
+    source_height: source.video.displayHeight,
+    source_video_bitrate: source.video.bitrate,
+    source_fps: source.video.fps.num / source.video.fps.den,
+    source_video_codec: source.video.codec,
+    source_hdr: source.video.hdr?.transfer ?? null,
+    duration_seconds: source.durationSeconds
+  }
+}
 
 export interface EnqueueDeps {
   repos: Repositories
@@ -83,16 +97,7 @@ export async function enqueueTitle(deps: EnqueueDeps, input: EnqueueInput): Prom
     source_managed: input.sourceManaged ?? false,
     output_folder: join(config.outputFolder, id)
   })
-  const title = repos.titles.update(id, {
-    source_hash: await sourceHash(input.sourcePath),
-    source_width: source.video.displayWidth,
-    source_height: source.video.displayHeight,
-    source_video_bitrate: source.video.bitrate,
-    source_fps: source.video.fps.num / source.video.fps.den,
-    source_video_codec: source.video.codec,
-    source_hdr: source.video.hdr?.transfer ?? null,
-    duration_seconds: source.durationSeconds
-  })!
+  const title = repos.titles.update(id, { source_hash: await sourceHash(input.sourcePath), ...sourceFields(source) })!
   const job = repos.jobs.create({ title_id: id, tipo: 'inicial', config })
 
   events.emit({ type: 'title.updated', title })
