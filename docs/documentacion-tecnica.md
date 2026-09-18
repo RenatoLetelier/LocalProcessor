@@ -1,6 +1,6 @@
 # Documentación Técnica — Motor de Transcodificación VOD
 
-**Estado:** en definición (v1) — documento de arquitectura, sin implementación aún.
+**Estado:** v1 implementada — documento de arquitectura de referencia. El uso, la integración y la referencia de la API están en el [README](../README.md).
 
 ---
 

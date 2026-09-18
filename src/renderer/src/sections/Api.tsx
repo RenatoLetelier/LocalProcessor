@@ -33,14 +33,17 @@ const ENDPOINTS: { method: string; path: string; description: string }[] = [
   { method: 'GET', path: '/titles/:id', description: 'Detalle: calidades, pistas de audio y subtítulos, jobs' },
   { method: 'GET', path: '/titles/:id/files', description: 'Árbol de archivos publicado con tamaños' },
   { method: 'POST', path: '/titles/:id/reprocess', description: '{ tipo: "agregar_calidad" | "agregar_pista" | "reprocesar_completo", … }' },
+  { method: 'PUT', path: '/titles/:id/source', description: 'Vincula el archivo de origen de un título: { sourcePath }' },
   { method: 'DELETE', path: '/titles/:id', description: 'Elimina el título, su carpeta y el archivo subido (si lo hubo)' },
+  { method: 'POST', path: '/titles/import', description: 'Importa los títulos publicados en la carpeta de salida que no estén en la biblioteca' },
   { method: 'GET', path: '/jobs', description: 'Jobs activos; ?status=all para el historial completo' },
   { method: 'GET', path: '/jobs/:id', description: 'Estado y progreso de un job' },
   { method: 'POST', path: '/jobs/:id/cancel', description: 'Cancela un job en cola o en curso' },
   { method: 'WS', path: '/jobs/stream', description: 'Eventos en tiempo real (job.progress, job.updated, title.updated…)' },
   { method: 'GET', path: '/config', description: 'Configuración actual (estándares, calidades, segmentos, codificador)' },
   { method: 'PUT', path: '/config', description: 'Actualiza la configuración' },
-  { method: 'GET', path: '/system', description: 'Codificadores detectados y concurrencia' },
+  { method: 'POST', path: '/config/api-token', description: 'Regenera el token de acceso desde la red (revoca el anterior)' },
+  { method: 'GET', path: '/system', description: 'Codificadores detectados, concurrencia, dirección de escucha e IPs del equipo' },
   { method: 'GET', path: '/health', description: 'Versión de la aplicación' }
 ]
 
