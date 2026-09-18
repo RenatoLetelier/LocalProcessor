@@ -1,4 +1,5 @@
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { DEFAULT_CONFIG } from '@shared/config'
@@ -51,7 +52,8 @@ describe('PUT /config', () => {
   })
 
   it('accepts only existing absolute folders as outputFolder', async () => {
-    const missing = await app.inject({ method: 'PUT', url: '/config', payload: { outputFolder: 'C:/no/such/folder' } })
+    // Absolute on every platform, unlike a hard-coded drive letter
+    const missing = await app.inject({ method: 'PUT', url: '/config', payload: { outputFolder: join(tmpdir(), 'no', 'such', 'folder') } })
     expect(missing.statusCode).toBe(400)
     expect(missing.json().problems).toEqual(['outputFolder: la carpeta no existe'])
 
