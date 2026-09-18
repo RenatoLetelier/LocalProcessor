@@ -122,14 +122,15 @@ Localcloud (backend)                          LocalProcessor (app de escritorio 
 
 ## 3. Instalación
 
-Descarga el instalador de tu sistema desde la página de *releases* del
-repositorio y ejecútalo. Todo viene incluido; no hay que instalar nada más.
+Descarga el instalador de tu sistema desde la página de
+[*releases*](https://github.com/RenatoLetelier/LocalProcessor/releases) y
+ejecútalo. Todo viene incluido; no hay que instalar nada más.
 
 | Sistema | Archivo | Notas |
 |---|---|---|
 | Windows 10/11 x64 | `LocalProcessor-<versión>-win-x64.exe` | Instalación por usuario (sin administrador) en `%LOCALAPPDATA%\Programs\LocalProcessor`. Al no estar firmado, SmartScreen muestra *editor desconocido*: **Más información → Ejecutar de todas formas**. |
 | macOS (Apple Silicon o Intel) | `LocalProcessor-<versión>-mac-arm64.dmg` o `-mac-x64.dmg` | Sin firmar: la primera vez hay que autorizarla en *Privacidad y seguridad*. En Apple Silicon, ffmpeg corre a través de Rosetta 2. |
-| Linux x64 | `LocalProcessor-<versión>-linux-x64.AppImage` o `.deb` | El AppImage no necesita instalación (`chmod +x` y ejecutar). |
+| Linux x64 | `LocalProcessor-<versión>-linux-x86_64.AppImage` o `-linux-amd64.deb` | El AppImage no necesita instalación (`chmod +x` y ejecutar). |
 
 Al abrirla por primera vez pide la **carpeta de salida**: ahí publicará una
 subcarpeta por título. Conviene un disco con espacio de sobra (ver
